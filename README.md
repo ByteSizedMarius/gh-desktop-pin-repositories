@@ -1,0 +1,2 @@
+# gh-desktop-pin-repositories
+ 
