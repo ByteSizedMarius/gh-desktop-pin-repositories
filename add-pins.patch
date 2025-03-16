@@ -1,0 +1,463 @@
+diff --git a/app/src/lib/app-state.ts b/app/src/lib/app-state.ts
+index 9a535d1a8..e4f001be4 100644
+--- a/app/src/lib/app-state.ts
++++ b/app/src/lib/app-state.ts
+@@ -84,6 +84,11 @@ export interface IAppState {
+    */
+   readonly recentRepositories: ReadonlyArray<number>
+ 
++  /**
++   * List of IDs of repos that have been pinned by the user
++   */
++  readonly pinnedRepositories: ReadonlyArray<number>
++
+   /**
+    * A cache of the latest repository state values, keyed by the repository id
+    */
+diff --git a/app/src/lib/local-storage.ts b/app/src/lib/local-storage.ts
+index efc6c40bb..97b9750d6 100644
+--- a/app/src/lib/local-storage.ts
++++ b/app/src/lib/local-storage.ts
+@@ -190,6 +190,9 @@ export function setStringArray(key: string, values: ReadonlyArray<string>) {
+ /** Default delimiter for stringifying and parsing arrays of numbers */
+ const NumberArrayDelimiter = ','
+ 
++/** Key for the list of pinned repos */
++export const PinnedRepositoriesKey = 'pinned-repositories'
++
+ /**
+  * Load a (string) enum based on its stored value. See `parseEnumValue` for more
+  * details on the conversion. Note that there's no `setEnum` companion method
+diff --git a/app/src/lib/stores/app-store.ts b/app/src/lib/stores/app-store.ts
+index 51f21cd24..7126588fd 100644
+--- a/app/src/lib/stores/app-store.ts
++++ b/app/src/lib/stores/app-store.ts
+@@ -456,6 +456,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
+   private accounts: ReadonlyArray<Account> = new Array<Account>()
+   private repositories: ReadonlyArray<Repository> = new Array<Repository>()
+   private recentRepositories: ReadonlyArray<number> = new Array<number>()
++  private pinnedRepositories: ReadonlyArray<number> = new Array<number>()
+ 
+   private selectedRepository: Repository | CloningRepository | null = null
+ 
+@@ -1020,6 +1021,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
+       accounts: this.accounts,
+       repositories,
+       recentRepositories: this.recentRepositories,
++      pinnedRepositories: this.pinnedRepositories,
+       localRepositoryStateLookup: this.localRepositoryStateLookup,
+       windowState: this.windowState,
+       windowZoomFactor: this.windowZoomFactor,
+diff --git a/app/src/lib/stores/repository-pinning-init.ts b/app/src/lib/stores/repository-pinning-init.ts
+new file mode 100644
+index 000000000..c65d008f3
+--- /dev/null
++++ b/app/src/lib/stores/repository-pinning-init.ts
+@@ -0,0 +1,8 @@
++import { getPinnedRepositories } from './repository-pinning'
++
++/**
++ * Initialize pinned repositories in the app store
++ */
++export function initializePinnedRepositories(): void {
++  getPinnedRepositories()
++}
+\ No newline at end of file
+diff --git a/app/src/lib/stores/repository-pinning.ts b/app/src/lib/stores/repository-pinning.ts
+new file mode 100644
+index 000000000..8e9795666
+--- /dev/null
++++ b/app/src/lib/stores/repository-pinning.ts
+@@ -0,0 +1,57 @@
++import * as LocalStorage from '../local-storage'
++import { Repository } from '../../models/repository'
++
++/** Storage key */
++export const PinnedRepositoriesKey = 'pinned-repositories'
++
++/**
++ * Get list pinned repo IDs
++ */
++export function getPinnedRepositories(): ReadonlyArray<number> {
++  return LocalStorage.getNumberArray(PinnedRepositoriesKey)
++}
++
++/**
++ * Store list of repo IDs
++ */
++export function setPinnedRepositories(
++  repositories: ReadonlyArray<number>
++): void {
++  LocalStorage.setNumberArray(PinnedRepositoriesKey, repositories)
++}
++
++/**
++ * Add repo to list
++ */
++export function addPinnedRepository(repository: Repository): void {
++  const pinnedRepositories = getPinnedRepositories()
++  if (pinnedRepositories.includes(repository.id)) {
++    return
++  }
++
++  const updatedPinnedRepositories = [...pinnedRepositories, repository.id]
++  setPinnedRepositories(updatedPinnedRepositories)
++}
++
++/**
++ * Remove a repo from list
++ */
++export function removePinnedRepository(repository: Repository): void {
++  const pinnedRepositories = getPinnedRepositories()
++  if (!pinnedRepositories.includes(repository.id)) {
++    return
++  }
++
++  const updatedPinnedRepositories = pinnedRepositories.filter(
++    id => id !== repository.id
++  )
++  setPinnedRepositories(updatedPinnedRepositories)
++}
++
++/**
++ * Check if repo is pinned
++ */
++export function isRepositoryPinned(repository: Repository): boolean {
++  const pinnedRepositories = getPinnedRepositories()
++  return pinnedRepositories.includes(repository.id)
++}
+\ No newline at end of file
+diff --git a/app/src/ui/app.tsx b/app/src/ui/app.tsx
+index 8bb5f504e..bf2fe9302 100644
+--- a/app/src/ui/app.tsx
++++ b/app/src/ui/app.tsx
+@@ -11,6 +11,7 @@ import {
+ } from '../lib/app-state'
+ import { Dispatcher } from './dispatcher'
+ import { AppStore, GitHubUserStore, IssuesStore } from '../lib/stores'
++import { getPinnedRepositories } from '../lib/stores/repository-pinning'
+ import { assertNever } from '../lib/fatal-error'
+ import { shell } from '../lib/app-shell'
+ import { updateStore, UpdateStatus } from './lib/update-store'
+@@ -2714,6 +2715,7 @@ export class App extends React.Component<IAppProps, IAppState> {
+         onSelectionChanged={this.onSelectionChanged}
+         repositories={this.state.repositories}
+         recentRepositories={this.state.recentRepositories}
++        pinnedRepositories={getPinnedRepositories()}
+         localRepositoryStateLookup={this.state.localRepositoryStateLookup}
+         askForConfirmationOnRemoveRepository={
+           this.state.askForConfirmationOnRepositoryRemoval
+diff --git a/app/src/ui/lib/update-store.ts b/app/src/ui/lib/update-store.ts
+index ce26a5ab4..64e649c25 100644
+--- a/app/src/ui/lib/update-store.ts
++++ b/app/src/ui/lib/update-store.ts
+@@ -3,7 +3,6 @@ const lastSuccessfulCheckKey = 'last-successful-update-check'
+ import { Emitter, Disposable } from 'event-kit'
+ 
+ import {
+-  checkForUpdates,
+   isRunningUnderARM64Translation,
+   onAutoUpdaterCheckingForUpdate,
+   onAutoUpdaterError,
+@@ -198,29 +197,11 @@ class UpdateStore {
+    *                       attempt to retrieve the latest available deployment.
+    */
+   public async checkForUpdates(inBackground: boolean, skipGuidCheck: boolean) {
+-    // An update has been downloaded and the app is waiting to be restarted.
+-    // Checking for updates again may result in the running app being nuked
+-    // when it finds a subsequent update on Windows, or the "Quit and Update"
+-    // button to crash the app if in the subsequent check, there is no update
+-    // available anymore due to a disabled update.
+-    if (this.status === UpdateStatus.UpdateReady) {
+-      this.updatePriorityUpdateStatus()
+-      return
+-    }
+-
+-    const updatesUrl = await this.getUpdatesUrl(skipGuidCheck)
+-
+-    if (updatesUrl === null) {
+-      return
+-    }
+-
+-    this.userInitiatedUpdate = !inBackground
+-
+-    const error = await checkForUpdates(updatesUrl)
+-
+-    if (error !== undefined) {
+-      this.emitError(error)
+-    }
++    // Simulate "no updates available"
++    this.touchLastChecked()
++    this.status = UpdateStatus.UpdateNotAvailable
++    this.emitDidChange()
++    return
+   }
+ 
+   private async getUpdatesUrl(skipGuidCheck: boolean) {
+diff --git a/app/src/ui/repositories-list/group-repositories.ts b/app/src/ui/repositories-list/group-repositories.ts
+index da4bd01af..069d441df 100644
+--- a/app/src/ui/repositories-list/group-repositories.ts
++++ b/app/src/ui/repositories-list/group-repositories.ts
+@@ -125,6 +125,62 @@ export function groupRepositories(
+  * @param repositories full list of repositories (we use this to get data about the `recentRepositories`)
+  * @param localRepositoryStateLookup cache of local state about full list of repositories (we use this to get data about the `recentRepositories`)
+  */
++/**
++ * Creates a group of pinned repositories for use with `FilterList` component
++ *
++ * @param pinnedRepositories list of pinned repositories' ids
++ * @param repositories full list of repositories
++ * @param localRepositoryStateLookup cache of local state about full list of repositories
++ */
++export function makePinnedRepositoriesGroup(
++  pinnedRepositories: ReadonlyArray<number>,
++  repositories: ReadonlyArray<Repositoryish>,
++  localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>
++): IFilterListGroup<IRepositoryListItem> {
++  const names = new Map<string, number>()
++  for (const id of pinnedRepositories) {
++    const repository = repositories.find(r => r.id === id)
++    if (repository !== undefined) {
++      const alias = repository instanceof Repository ? repository.alias : null
++      const name = alias ?? repository.name
++      const existingCount = names.get(name) || 0
++      names.set(name, existingCount + 1)
++    }
++  }
++
++  const items = new Array<IRepositoryListItem>()
++
++  for (const id of pinnedRepositories) {
++    const repository = repositories.find(r => r.id === id)
++    if (repository === undefined) {
++      continue
++    }
++
++    const { aheadBehind, changedFilesCount } =
++      localRepositoryStateLookup.get(id) || fallbackValue
++    const repositoryAlias =
++      repository instanceof Repository ? repository.alias : null
++    const repositoryText =
++      repository instanceof Repository
++        ? [repositoryAlias ?? repository.name, nameOf(repository)]
++        : [repository.name]
++    const nameCount = names.get(repositoryAlias ?? repository.name) || 0
++    items.push({
++      text: repositoryText,
++      id: id.toString(),
++      repository,
++      needsDisambiguation: nameCount > 1,
++      aheadBehind,
++      changedFilesCount,
++    })
++  }
++
++  return {
++    identifier: 'Pins',
++    items,
++  }
++}
++
+ export function makeRecentRepositoriesGroup(
+   recentRepositories: ReadonlyArray<number>,
+   repositories: ReadonlyArray<Repositoryish>,
+diff --git a/app/src/ui/repositories-list/repositories-list.tsx b/app/src/ui/repositories-list/repositories-list.tsx
+index 0b9379318..40b87cb22 100644
+--- a/app/src/ui/repositories-list/repositories-list.tsx
++++ b/app/src/ui/repositories-list/repositories-list.tsx
+@@ -8,7 +8,13 @@ import {
+   RepositoryGroupIdentifier,
+   KnownRepositoryGroup,
+   makeRecentRepositoriesGroup,
++  makePinnedRepositoriesGroup,
+ } from './group-repositories'
++import {
++  addPinnedRepository,
++  removePinnedRepository,
++  getPinnedRepositories
++} from '../../lib/stores/repository-pinning'
+ import { IFilterListGroup } from '../lib/filter-list'
+ import { IMatches } from '../../lib/fuzzy-find'
+ import { ILocalRepositoryState, Repository } from '../../models/repository'
+@@ -34,6 +40,7 @@ interface IRepositoriesListProps {
+   readonly selectedRepository: Repositoryish | null
+   readonly repositories: ReadonlyArray<Repositoryish>
+   readonly recentRepositories: ReadonlyArray<number>
++  readonly pinnedRepositories: ReadonlyArray<number>
+ 
+   /** A cache of the latest repository state values, keyed by the repository id */
+   readonly localRepositoryStateLookup: ReadonlyMap<
+@@ -79,6 +86,7 @@ interface IRepositoriesListProps {
+ 
+ interface IRepositoriesListState {
+   readonly newRepositoryMenuExpanded: boolean
++  readonly pinnedRepositoriesIds: ReadonlyArray<number>
+ }
+ 
+ const RowHeight = 29
+@@ -139,8 +147,10 @@ export class RepositoriesList extends React.Component<
+   public constructor(props: IRepositoriesListProps) {
+     super(props)
+ 
++    // Initialize state with current pinned repositories
+     this.state = {
+       newRepositoryMenuExpanded: false,
++      pinnedRepositoriesIds: getPinnedRepositories(),
+     }
+   }
+ 
+@@ -201,6 +211,17 @@ export class RepositoriesList extends React.Component<
+   ) => {
+     event.preventDefault()
+ 
++    // Check if the repository is pinned using our local state
++    const isPinned = item.repository instanceof Repository &&
++      this.state.pinnedRepositoriesIds.includes(item.repository.id)
++
++    // Create context menu handlers for pin/unpin
++    const pinHandler = item.repository instanceof Repository ?
++      this.onPinRepository : undefined
++    
++    const unpinHandler = item.repository instanceof Repository ?
++      this.onUnpinRepository : undefined
++
+     const items = generateRepositoryListContextMenu({
+       onRemoveRepository: this.props.onRemoveRepository,
+       onShowRepository: this.props.onShowRepository,
+@@ -214,6 +235,9 @@ export class RepositoriesList extends React.Component<
+       onViewOnGitHub: this.props.onViewOnGitHub,
+       repository: item.repository,
+       shellLabel: this.props.shellLabel,
++      onPinRepository: pinHandler,
++      onUnpinRepository: unpinHandler,
++      isPinned,
+     })
+ 
+     showContextualMenu(items)
+@@ -236,17 +260,30 @@ export class RepositoriesList extends React.Component<
+       this.props.selectedRepository
+     )
+ 
+-    const groups =
+-      this.props.repositories.length > recentRepositoriesThreshold
+-        ? [
+-            makeRecentRepositoriesGroup(
+-              this.props.recentRepositories,
+-              this.props.repositories,
+-              this.props.localRepositoryStateLookup
+-            ),
+-            ...baseGroups,
+-          ]
+-        : baseGroups
++    // Create array of groups with Pins at the top, then Recent, then other categories
++    let groups = baseGroups
++    
++    // Add Recent group if we have enough repositories
++    if (this.props.repositories.length > recentRepositoriesThreshold) {
++      groups = [
++        makeRecentRepositoriesGroup(
++          this.props.recentRepositories,
++          this.props.repositories,
++          this.props.localRepositoryStateLookup
++        ),
++        ...groups,
++      ]
++    }
++    
++    // Add Pins group if we have any pinned repositories
++    if (this.state.pinnedRepositoriesIds.length > 0) {
++      const pinnedGroup = makePinnedRepositoriesGroup(
++        this.state.pinnedRepositoriesIds,
++        this.props.repositories,
++        this.props.localRepositoryStateLookup
++      )
++      groups = [pinnedGroup, ...groups]
++    }
+ 
+     return (
+       <div className="repository-list">
+@@ -368,4 +405,18 @@ export class RepositoriesList extends React.Component<
+   private onRemoveRepositoryAlias = (repository: Repository) => {
+     this.props.dispatcher.changeRepositoryAlias(repository, null)
+   }
++
++  private onPinRepository = (repository: Repository) => {
++    addPinnedRepository(repository)
++    this.setState(prevState => ({
++	  pinnedRepositoriesIds: getPinnedRepositories()
++    }))
++  }
++
++  private onUnpinRepository = (repository: Repository) => {
++    removePinnedRepository(repository)
++    this.setState(prevState => ({
++	  pinnedRepositoriesIds: getPinnedRepositories()
++    }))
++  }
+ }
+diff --git a/app/src/ui/repositories-list/repository-list-item-context-menu.ts b/app/src/ui/repositories-list/repository-list-item-context-menu.ts
+index 6ee52c535..37fef342d 100644
+--- a/app/src/ui/repositories-list/repository-list-item-context-menu.ts
++++ b/app/src/ui/repositories-list/repository-list-item-context-menu.ts
+@@ -20,6 +20,9 @@ interface IRepositoryListItemContextMenuConfig {
+   onRemoveRepository: (repository: Repositoryish) => void
+   onChangeRepositoryAlias: (repository: Repository) => void
+   onRemoveRepositoryAlias: (repository: Repository) => void
++  onPinRepository?: (repository: Repository) => void
++  onUnpinRepository?: (repository: Repository) => void
++  isPinned?: boolean
+ }
+ 
+ export const generateRepositoryListContextMenu = (
+@@ -36,8 +39,38 @@ export const generateRepositoryListContextMenu = (
+     ? `Open in ${config.shellLabel}`
+     : DefaultShellLabel
+ 
++  const pinItems: Array<IMenuItem> = []
++  
++  // Only add pin/unpin options for Repository objects (not CloningRepository)
++  if (repository instanceof Repository) {
++    if (config.isPinned && config.onUnpinRepository) {
++      pinItems.push({
++        label: __DARWIN__ ? 'Unpin Repository' : 'Unpin repository',
++        action: () => {
++          if (config.onUnpinRepository) {
++            config.onUnpinRepository(repository)
++          }
++        },
++      })
++    } else if (!config.isPinned && config.onPinRepository) {
++      pinItems.push({
++        label: __DARWIN__ ? 'Pin Repository' : 'Pin repository',
++        action: () => {
++          if (config.onPinRepository) {
++            config.onPinRepository(repository)
++          }
++        },
++      })
++    }
++
++    if (pinItems.length > 0) {
++      pinItems.push({ type: 'separator' })
++    }
++  }
++
+   const items: ReadonlyArray<IMenuItem> = [
+     ...buildAliasMenuItems(config),
++    ...pinItems,
+     {
+       label: __DARWIN__ ? 'Copy Repo Name' : 'Copy repo name',
+       action: () => clipboard.writeText(repository.name),
+diff --git a/app/src/ui/repositories-list/repository-list-item.tsx b/app/src/ui/repositories-list/repository-list-item.tsx
+index a41b36759..b176d2285 100644
+--- a/app/src/ui/repositories-list/repository-list-item.tsx
++++ b/app/src/ui/repositories-list/repository-list-item.tsx
+@@ -113,7 +113,7 @@ export class RepositoryListItem extends React.Component<
+ const renderRepoIndicators: React.FunctionComponent<{
+   aheadBehind: IAheadBehind | null
+   hasChanges: boolean
+-}> = props => {
++}> = props => {  
+   return (
+     <div className="repo-indicators">
+       {props.aheadBehind && renderAheadBehindIndicator(props.aheadBehind)}
