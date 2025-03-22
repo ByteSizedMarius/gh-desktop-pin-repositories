@@ -35,15 +35,17 @@ cd desktop
 ```
 
 4. **Apply the patches**
-```
-git apply ../gh-desktop-pin-repositories/add_pins.patch ../gh-desktop-pin-repositories/disable_auto_updates.patch ../gh-desktop-pin-repositories/fix_auth_handler.patch
-```
+
 This will:
 - Add the ability to pin repositories in the list, as well as changing how the selected repository is shown \*
 - Disable automatic updates, as this would remove the patch
 - Fix the authentication handler, as when building for prod without the github desktop app tokens (which are obv not public), the wrong oauth callback is registered, making logging in more difficult
 
-If you also want to remove the recent section (I found it not to be necessary anymore with the ability to pin), also apply `../gh-desktop-pin-repositories/remove_recent.patch`
+Note: If you also want to remove the recent section (I found it not to be necessary anymore with the ability to pin), apply `../gh-desktop-pin-repositories/add_pins_remove_recent.patch` instead of `add_pins.patch`
+
+```
+git apply ../gh-desktop-pin-repositories/add_pins.patch ../gh-desktop-pin-repositories/disable_auto_updates.patch ../gh-desktop-pin-repositories/fix_auth_handler.patch
+```
 
 5. **Build**
 ```
@@ -66,4 +68,4 @@ It should work without having to uninstall your previous version, keeping your a
 
 ---
 
-\* Previously pins/recents never showed as selected. When you selected a pin, the repository in the list would show as selected. This would cause the listview to scroll down to the selected repository next time you opened the repo-pane. Instead, now the pinned repositories will show as selected.
+\* Previously pins/recents never showed as selected. When you selected a pin, the repository item lower down in the list would show as selected. This would cause the listview to scroll down to the selected repository next time you opened the repo-pane. Instead, now the pinned repositories will show as selected.
