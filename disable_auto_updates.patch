@@ -1,0 +1,47 @@
+diff --git a/app/src/ui/lib/update-store.ts b/app/src/ui/lib/update-store.ts
+index ce26a5ab4..64e649c25 100644
+--- a/app/src/ui/lib/update-store.ts
++++ b/app/src/ui/lib/update-store.ts
+@@ -3,7 +3,6 @@ const lastSuccessfulCheckKey = 'last-successful-update-check'
+ import { Emitter, Disposable } from 'event-kit'
+ 
+ import {
+-  checkForUpdates,
+   isRunningUnderARM64Translation,
+   onAutoUpdaterCheckingForUpdate,
+   onAutoUpdaterError,
+@@ -198,29 +197,11 @@ class UpdateStore {
+    *                       attempt to retrieve the latest available deployment.
+    */
+   public async checkForUpdates(inBackground: boolean, skipGuidCheck: boolean) {
+-    // An update has been downloaded and the app is waiting to be restarted.
+-    // Checking for updates again may result in the running app being nuked
+-    // when it finds a subsequent update on Windows, or the "Quit and Update"
+-    // button to crash the app if in the subsequent check, there is no update
+-    // available anymore due to a disabled update.
+-    if (this.status === UpdateStatus.UpdateReady) {
+-      this.updatePriorityUpdateStatus()
+-      return
+-    }
+-
+-    const updatesUrl = await this.getUpdatesUrl(skipGuidCheck)
+-
+-    if (updatesUrl === null) {
+-      return
+-    }
+-
+-    this.userInitiatedUpdate = !inBackground
+-
+-    const error = await checkForUpdates(updatesUrl)
+-
+-    if (error !== undefined) {
+-      this.emitError(error)
+-    }
++    // Always simulate "no updates available" to disable auto-updates
++    this.touchLastChecked()
++    this.status = UpdateStatus.UpdateNotAvailable
++    this.emitDidChange()
++    return
+   }
+ 
+   private async getUpdatesUrl(skipGuidCheck: boolean) {

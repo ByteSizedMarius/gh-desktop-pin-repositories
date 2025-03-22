@@ -147,53 +147,6 @@ index 8bb5f504e..bf2fe9302 100644
          localRepositoryStateLookup={this.state.localRepositoryStateLookup}
          askForConfirmationOnRemoveRepository={
            this.state.askForConfirmationOnRepositoryRemoval
-diff --git a/app/src/ui/lib/update-store.ts b/app/src/ui/lib/update-store.ts
-index ce26a5ab4..64e649c25 100644
---- a/app/src/ui/lib/update-store.ts
-+++ b/app/src/ui/lib/update-store.ts
-@@ -3,7 +3,6 @@ const lastSuccessfulCheckKey = 'last-successful-update-check'
- import { Emitter, Disposable } from 'event-kit'
- 
- import {
--  checkForUpdates,
-   isRunningUnderARM64Translation,
-   onAutoUpdaterCheckingForUpdate,
-   onAutoUpdaterError,
-@@ -198,29 +197,11 @@ class UpdateStore {
-    *                       attempt to retrieve the latest available deployment.
-    */
-   public async checkForUpdates(inBackground: boolean, skipGuidCheck: boolean) {
--    // An update has been downloaded and the app is waiting to be restarted.
--    // Checking for updates again may result in the running app being nuked
--    // when it finds a subsequent update on Windows, or the "Quit and Update"
--    // button to crash the app if in the subsequent check, there is no update
--    // available anymore due to a disabled update.
--    if (this.status === UpdateStatus.UpdateReady) {
--      this.updatePriorityUpdateStatus()
--      return
--    }
--
--    const updatesUrl = await this.getUpdatesUrl(skipGuidCheck)
--
--    if (updatesUrl === null) {
--      return
--    }
--
--    this.userInitiatedUpdate = !inBackground
--
--    const error = await checkForUpdates(updatesUrl)
--
--    if (error !== undefined) {
--      this.emitError(error)
--    }
-+    // Simulate "no updates available"
-+    this.touchLastChecked()
-+    this.status = UpdateStatus.UpdateNotAvailable
-+    this.emitDidChange()
-+    return
-   }
- 
-   private async getUpdatesUrl(skipGuidCheck: boolean) {
 diff --git a/app/src/ui/repositories-list/group-repositories.ts b/app/src/ui/repositories-list/group-repositories.ts
 index da4bd01af..069d441df 100644
 --- a/app/src/ui/repositories-list/group-repositories.ts
@@ -448,16 +401,40 @@ index 6ee52c535..37fef342d 100644
      {
        label: __DARWIN__ ? 'Copy Repo Name' : 'Copy repo name',
        action: () => clipboard.writeText(repository.name),
-diff --git a/app/src/ui/repositories-list/repository-list-item.tsx b/app/src/ui/repositories-list/repository-list-item.tsx
-index a41b36759..b176d2285 100644
---- a/app/src/ui/repositories-list/repository-list-item.tsx
-+++ b/app/src/ui/repositories-list/repository-list-item.tsx
-@@ -113,7 +113,7 @@ export class RepositoryListItem extends React.Component<
- const renderRepoIndicators: React.FunctionComponent<{
-   aheadBehind: IAheadBehind | null
-   hasChanges: boolean
--}> = props => {
-+}> = props => {  
-   return (
-     <div className="repo-indicators">
-       {props.aheadBehind && renderAheadBehindIndicator(props.aheadBehind)}
+diff --git a/app/src/ui/lib/section-filter-list.tsx b/app/src/ui/lib/section-filter-list.tsx
+index 1752c8f91..06c441978 100644
+--- a/app/src/ui/lib/section-filter-list.tsx
++++ b/app/src/ui/lib/section-filter-list.tsx
+@@ -657,6 +657,16 @@ function createStateUpdate<T extends IFilterListItem>(
+   const selectedItem = props.selectedItem
+   const groupIndices = []
+ 
++  // Check for a "Pins" group and see if the selected item is in it
++  let isPinnedItemSelected = false
++  if (selectedItem !== null) {
++    const pinsGroupIndex = props.groups.findIndex(g => g.identifier === 'Pins')
++    if (pinsGroupIndex !== -1) {
++      const pinsGroup = props.groups[pinsGroupIndex]
++      isPinnedItemSelected = pinsGroup.items.some(item => item.id === selectedItem.id)
++    }
++  }
++
+   for (const [idx, group] of props.groups.entries()) {
+     const groupRows = new Array<IFilterListRow<T>>()
+     const items: ReadonlyArray<IMatch<T>> = filter
+@@ -679,9 +689,12 @@ function createStateUpdate<T extends IFilterListItem>(
+ 
+     for (const { item, matches } of items) {
+       if (selectedItem && item.id === selectedItem.id) {
+-        selectedRow = {
+-          section,
+-          row: groupRows.length,
++        if ((group.identifier === 'Pins') || 
++            (group.identifier !== 'Pins' && !isPinnedItemSelected)) {
++          selectedRow = {
++            section,
++            row: groupRows.length,
++          }
+         }
+       }
+ 

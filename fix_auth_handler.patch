@@ -1,0 +1,18 @@
+diff --git a/script/build.ts b/script/build.ts
+index b51060b27..f85ebf6a9 100755
+--- a/script/build.ts
++++ b/script/build.ts
+@@ -202,9 +202,10 @@ function packageApp() {
+       {
+         name: getBundleID(),
+         schemes: [
+-          !isDevelopmentBuild
+-            ? 'x-github-desktop-auth'
+-            : 'x-github-desktop-dev-auth',
++          // !isDevelopmentBuild
++          // ? 'x-github-desktop-auth'
++          // :
++          'x-github-desktop-dev-auth',
+           'x-github-client',
+           'github-mac',
+         ],

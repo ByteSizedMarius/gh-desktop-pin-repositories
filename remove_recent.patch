@@ -1,0 +1,54 @@
+diff --git a/app/src/ui/repositories-list/repositories-list.tsx b/app/src/ui/repositories-list/repositories-list.tsx
+index 8a8ca937d..09d76ab0b 100644
+--- a/app/src/ui/repositories-list/repositories-list.tsx
++++ b/app/src/ui/repositories-list/repositories-list.tsx
+@@ -7,7 +7,6 @@ import {
+   Repositoryish,
+   RepositoryGroupIdentifier,
+   KnownRepositoryGroup,
+-  makeRecentRepositoriesGroup,
+   makePinnedRepositoriesGroup,
+ } from './group-repositories'
+ import {
+@@ -34,8 +33,6 @@ import { SectionFilterList } from '../lib/section-filter-list'
+ 
+ const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
+ 
+-const recentRepositoriesThreshold = 7
+-
+ interface IRepositoriesListProps {
+   readonly selectedRepository: Repositoryish | null
+   readonly repositories: ReadonlyArray<Repositoryish>
+@@ -259,30 +256,16 @@ export class RepositoriesList extends React.Component<
+       baseGroups,
+       this.props.selectedRepository
+     )
+-
+-    // Create array of groups with Pins at the top, then Recent, then other categories
+-    let groups = baseGroups
+-    
+-    // Add Recent group if we have enough repositories
+-    if (this.props.repositories.length > recentRepositoriesThreshold) {
+-      groups = [
+-        makeRecentRepositoriesGroup(
+-          this.props.recentRepositories,
+-          this.props.repositories,
+-          this.props.localRepositoryStateLookup
+-        ),
+-        ...groups,
+-      ]
+-    }
+     
+     // Add Pins group if we have any pinned repositories
++    let groups = baseGroups
+     if (this.state.pinnedRepositoriesIds.length > 0) {
+       const pinnedGroup = makePinnedRepositoriesGroup(
+         this.state.pinnedRepositoriesIds,
+         this.props.repositories,
+         this.props.localRepositoryStateLookup
+       )
+-      groups = [pinnedGroup, ...groups]
++      groups = [pinnedGroup, ...baseGroups]
+     }
+ 
+     return (
