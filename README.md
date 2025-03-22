@@ -40,7 +40,7 @@ git apply ../gh-desktop-pin-repositories/add_pins.patch ../gh-desktop-pin-reposi
 ```
 This will:
 - Add the ability to pin repositories in the list, as well as changing how the selected repository is shown \*
-- Disabled automatic updates, as this would remove the patch
+- Disable automatic updates, as this would remove the patch
 - Fix the authentication handler, as when building for prod without the github desktop app tokens (which are obv not public), the wrong oauth callback is registered, making logging in more difficult
 
 If you also want to remove the recent section (I found it not to be necessary anymore with the ability to pin), also apply `../gh-desktop-pin-repositories/remove_recent.patch`
@@ -52,14 +52,16 @@ yarn build:prod
 yarn package
 ```
 
-If you instead just want to try it out (without replacing your current installation) you may run it in development mode:
+If you instead just want to try it out (without replacing your current installation) you may run it in development mode first:
 ```
 yarn
 yarn build:dev
 yarn start
 ```
 
-6. **Install – yarn helpfully prints the installer path to the console**
+6. **Install**
+Yarn helpfully prints the installer path to the console.
+
 It should work without having to uninstall your previous version, keeping your authentication, repositories and settings.
 
 ---
