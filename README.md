@@ -1,14 +1,13 @@
 # gh-desktop-pin-repositories
 
-Adds the option to pin repos at the top of the list. 
+Adds the option to pin repos at the top of the repository list. 
 Also disables auto-updates (as updating will require re-patching anyways; not tested yet whether this patch works – will show when next update releases). 
 Sadly to get this working, you will need to set up the dev environment and compile gh desktop. 
 Context: https://github.com/desktop/desktop/issues/8183, https://github.com/desktop/desktop/issues/3410
 
 Please note:
 - These are not languages I usually tinker with (PRs welcome)
-- May be unstable. Works for me but not guarantees
-- Tested on Windows only
+- May be unstable. Works for me but not guarantees (tested on Windows only)
 - The resulting installer and executable will be unsigned
 - Will use the Developer OAuth app for authentication. This will not work with enterprise. See [official docs](https://github.com/desktop/desktop/blob/development/docs/technical/oauth.md) regarding this
 
@@ -25,7 +24,7 @@ cd desktop
 git checkout 19c76e1
 ```
 Latter command controls which version of github the patch is applied to. `19c76e1` is `3.4.18`. 
-Changes to the patches may be required for newer versions.
+Changes to the patches may be required for newer [versions](https://github.com/desktop/desktop/releases).
 
 3. **Clone the patches**
 ```
@@ -48,11 +47,6 @@ git apply ../gh-desktop-pin-repositories/add_pins.patch ../gh-desktop-pin-reposi
 ```
 
 5. **Build**
-```
-yarn
-yarn build:prod
-yarn package
-```
 
 If you instead just want to try it out (without replacing your current installation) you may run it in development mode first:
 ```
@@ -61,7 +55,15 @@ yarn build:dev
 yarn start
 ```
 
+Otherwise, build the installer:
+```
+yarn
+yarn build:prod
+yarn package
+```
+
 6. **Install**
+
 Yarn helpfully prints the installer path to the console.
 
 It should work without having to uninstall your previous version, keeping your authentication, repositories and settings.
