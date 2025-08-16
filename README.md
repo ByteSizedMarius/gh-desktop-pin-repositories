@@ -10,6 +10,7 @@ Please note:
 - May be unstable. Works for me but not guarantees (tested on Windows only)
 - The resulting installer and executable will be unsigned
 - Will use the Developer OAuth app for authentication. This will not work with enterprise. See [official docs](https://github.com/desktop/desktop/blob/development/docs/technical/oauth.md) regarding this
+- If `separate_instance.patch` is applied, installing will cause a separate instance to be installed. This allows having multiple accounts on one machine.
 
 ![Pinning Action](pin.gif)
 

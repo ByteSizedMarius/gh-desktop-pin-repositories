@@ -1,0 +1,48 @@
+---
+ app/package.json | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/app/package.json b/app/package.json
+index f56c168b65..e5803819c0 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "desktop",
+-  "productName": "GitHub Desktop",
+-  "bundleID": "com.github.GitHubClient",
++  "name": "desktop-alt",
++  "productName": "GitHub Desktop Alt",
++  "bundleID": "com.github.GitHubClientAlt",
+   "companyName": "GitHub, Inc.",
+   "version": "3.5.2",
+   "main": "./main.js",
+diff --git a/script/dist-info.ts b/script/dist-info.ts
+index e2ae688d55..11e418802f 100644
+--- a/script/dist-info.ts
++++ b/script/dist-info.ts
+@@ -94,7 +94,7 @@ export function getWindowsDeltaNugetPackagePath() {
+ }
+ 
+ export function getWindowsIdentifierName() {
+-  return 'GitHubDesktop'
++  return 'GitHubDesktopAlt'
+ }
+ 
+ export function getBundleSizes() {
+diff --git a/app/src/main-process/main.ts b/app/src/main-process/main.ts
+index 18cf6cd92f..4766ee83ea 100644
+--- a/app/src/main-process/main.ts
++++ b/app/src/main-process/main.ts
+@@ -118,7 +118,7 @@ if (__DARWIN__) {
+ // On Windows, in order to get notifications properly working for dev builds,
+ // we'll want to set the right App User Model ID from production builds.
+ if (__WIN32__ && __DEV__) {
+-  app.setAppUserModelId('com.squirrel.GitHubDesktop.GitHubDesktop')
++  app.setAppUserModelId('com.squirrel.GitHubDesktopAlt.GitHubDesktopAlt')
+ }
+ 
+ app.on('window-all-closed', () => {
+-- 
+2.43.0
+
