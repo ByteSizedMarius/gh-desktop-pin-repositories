@@ -1,5 +1,18 @@
+---
+ app/src/lib/app-state.ts                      |  5 ++
+ app/src/lib/local-storage.ts                  |  3 +
+ app/src/lib/stores/app-store.ts               |  2 +
+ app/src/lib/stores/repository-pinning.ts      | 57 +++++++++++++++++
+ app/src/ui/app.tsx                            |  2 +
+ app/src/ui/lib/section-filter-list.tsx        | 19 +++++-
+ .../repositories-list/group-repositories.ts   | 62 ++++++++++++++++++-
+ .../repositories-list/repositories-list.tsx   | 60 ++++++++++++++++--
+ .../repository-list-item-context-menu.ts      | 33 ++++++++++
+ 9 files changed, 234 insertions(+), 9 deletions(-)
+ create mode 100644 app/src/lib/stores/repository-pinning.ts
+
 diff --git a/app/src/lib/app-state.ts b/app/src/lib/app-state.ts
-index 9a535d1a8..e4f001be4 100644
+index 70a339a157..508a15a1b8 100644
 --- a/app/src/lib/app-state.ts
 +++ b/app/src/lib/app-state.ts
 @@ -84,6 +84,11 @@ export interface IAppState {
@@ -15,7 +28,7 @@ index 9a535d1a8..e4f001be4 100644
     * A cache of the latest repository state values, keyed by the repository id
     */
 diff --git a/app/src/lib/local-storage.ts b/app/src/lib/local-storage.ts
-index efc6c40bb..97b9750d6 100644
+index efc6c40bba..97b9750d63 100644
 --- a/app/src/lib/local-storage.ts
 +++ b/app/src/lib/local-storage.ts
 @@ -190,6 +190,9 @@ export function setStringArray(key: string, values: ReadonlyArray<string>) {
@@ -29,10 +42,10 @@ index efc6c40bb..97b9750d6 100644
   * Load a (string) enum based on its stored value. See `parseEnumValue` for more
   * details on the conversion. Note that there's no `setEnum` companion method
 diff --git a/app/src/lib/stores/app-store.ts b/app/src/lib/stores/app-store.ts
-index 51f21cd24..7126588fd 100644
+index 69598dedc8..ea48969d18 100644
 --- a/app/src/lib/stores/app-store.ts
 +++ b/app/src/lib/stores/app-store.ts
-@@ -456,6 +456,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
+@@ -468,6 +468,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
    private accounts: ReadonlyArray<Account> = new Array<Account>()
    private repositories: ReadonlyArray<Repository> = new Array<Repository>()
    private recentRepositories: ReadonlyArray<number> = new Array<number>()
@@ -40,7 +53,7 @@ index 51f21cd24..7126588fd 100644
  
    private selectedRepository: Repository | CloningRepository | null = null
  
-@@ -1020,6 +1021,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
+@@ -1035,6 +1036,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
        accounts: this.accounts,
        repositories,
        recentRepositories: this.recentRepositories,
@@ -48,24 +61,9 @@ index 51f21cd24..7126588fd 100644
        localRepositoryStateLookup: this.localRepositoryStateLookup,
        windowState: this.windowState,
        windowZoomFactor: this.windowZoomFactor,
-diff --git a/app/src/lib/stores/repository-pinning-init.ts b/app/src/lib/stores/repository-pinning-init.ts
-new file mode 100644
-index 000000000..c65d008f3
---- /dev/null
-+++ b/app/src/lib/stores/repository-pinning-init.ts
-@@ -0,0 +1,8 @@
-+import { getPinnedRepositories } from './repository-pinning'
-+
-+/**
-+ * Initialize pinned repositories in the app store
-+ */
-+export function initializePinnedRepositories(): void {
-+  getPinnedRepositories()
-+}
-\ No newline at end of file
 diff --git a/app/src/lib/stores/repository-pinning.ts b/app/src/lib/stores/repository-pinning.ts
 new file mode 100644
-index 000000000..8e9795666
+index 0000000000..8e97956661
 --- /dev/null
 +++ b/app/src/lib/stores/repository-pinning.ts
 @@ -0,0 +1,57 @@
@@ -128,7 +126,7 @@ index 000000000..8e9795666
 +}
 \ No newline at end of file
 diff --git a/app/src/ui/app.tsx b/app/src/ui/app.tsx
-index 8bb5f504e..bf2fe9302 100644
+index 520f0d45a8..efe7d62732 100644
 --- a/app/src/ui/app.tsx
 +++ b/app/src/ui/app.tsx
 @@ -11,6 +11,7 @@ import {
@@ -139,7 +137,7 @@ index 8bb5f504e..bf2fe9302 100644
  import { assertNever } from '../lib/fatal-error'
  import { shell } from '../lib/app-shell'
  import { updateStore, UpdateStatus } from './lib/update-store'
-@@ -2714,6 +2715,7 @@ export class App extends React.Component<IAppProps, IAppState> {
+@@ -2876,6 +2877,7 @@ export class App extends React.Component<IAppProps, IAppState> {
          onSelectionChanged={this.onSelectionChanged}
          repositories={this.state.repositories}
          recentRepositories={this.state.recentRepositories}
@@ -147,14 +145,71 @@ index 8bb5f504e..bf2fe9302 100644
          localRepositoryStateLookup={this.state.localRepositoryStateLookup}
          askForConfirmationOnRemoveRepository={
            this.state.askForConfirmationOnRepositoryRemoval
+diff --git a/app/src/ui/lib/section-filter-list.tsx b/app/src/ui/lib/section-filter-list.tsx
+index a2a32e4c1d..b3b1f98d92 100644
+--- a/app/src/ui/lib/section-filter-list.tsx
++++ b/app/src/ui/lib/section-filter-list.tsx
+@@ -680,6 +680,16 @@ function createStateUpdate<T extends IFilterListItem, GroupIdentifier>(
+   const selectedItem = props.selectedItem
+   const groupIndices = []
+ 
++  // Check for a "Pins" group and see if the selected item is in it
++  let isPinnedItemSelected = false
++  if (selectedItem !== null) {
++    const pinsGroupIndex = props.groups.findIndex(g => (g.identifier as any)?.kind === 'pins')
++    if (pinsGroupIndex !== -1) {
++      const pinsGroup = props.groups[pinsGroupIndex]
++      isPinnedItemSelected = pinsGroup.items.some(item => item.id === selectedItem.id)
++    }
++  }
++
+   for (const [idx, group] of props.groups.entries()) {
+     const groupRows = new Array<IFilterListRow<T, GroupIdentifier>>()
+     const items: ReadonlyArray<IMatch<T>> = filter
+@@ -702,9 +712,12 @@ function createStateUpdate<T extends IFilterListItem, GroupIdentifier>(
+ 
+     for (const { item, matches } of items) {
+       if (selectedItem && item.id === selectedItem.id) {
+-        selectedRow = {
+-          section,
+-          row: groupRows.length,
++        if (((group.identifier as any)?.kind === 'pins') ||
++            ((group.identifier as any)?.kind !== 'pins' && !isPinnedItemSelected)) {
++          selectedRow = {
++            section,
++            row: groupRows.length,
++          }
+         }
+       }
+ 
 diff --git a/app/src/ui/repositories-list/group-repositories.ts b/app/src/ui/repositories-list/group-repositories.ts
-index da4bd01af..069d441df 100644
+index 393eb51cb3..a84d3b33bb 100644
 --- a/app/src/ui/repositories-list/group-repositories.ts
 +++ b/app/src/ui/repositories-list/group-repositories.ts
-@@ -125,6 +125,62 @@ export function groupRepositories(
-  * @param repositories full list of repositories (we use this to get data about the `recentRepositories`)
-  * @param localRepositoryStateLookup cache of local state about full list of repositories (we use this to get data about the `recentRepositories`)
-  */
+@@ -17,7 +17,7 @@ import { enableMultipleEnterpriseAccounts } from '../../lib/feature-flag'
+ 
+ export type RepositoryListGroup =
+   | {
+-      kind: 'recent' | 'other'
++      kind: 'recent' | 'other' | 'pins'
+     }
+   | {
+       kind: 'dotcom'
+@@ -36,6 +36,8 @@ export type RepositoryListGroup =
+ export const getGroupKey = (group: RepositoryListGroup) => {
+   const { kind } = group
+   switch (kind) {
++    case 'pins':
++      return `-1:pins`
+     case 'recent':
+       return `0:recent`
+     case 'dotcom':
+@@ -118,6 +120,64 @@ export function groupRepositories(
+     }))
+ }
+ 
++const fallbackValue: ILocalRepositoryState = { aheadBehind: null, changedFilesCount: 0 }
++
 +/**
 + * Creates a group of pinned repositories for use with `FilterList` component
 + *
@@ -166,7 +221,7 @@ index da4bd01af..069d441df 100644
 +  pinnedRepositories: ReadonlyArray<number>,
 +  repositories: ReadonlyArray<Repositoryish>,
 +  localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>
-+): IFilterListGroup<IRepositoryListItem> {
++): IFilterListGroup<IRepositoryListItem, RepositoryListGroup> {
 +  const names = new Map<string, number>()
 +  for (const id of pinnedRepositories) {
 +    const repository = repositories.find(r => r.id === id)
@@ -206,22 +261,22 @@ index da4bd01af..069d441df 100644
 +  }
 +
 +  return {
-+    identifier: 'Pins',
++    identifier: { kind: 'pins' },
 +    items,
 +  }
 +}
 +
- export function makeRecentRepositoriesGroup(
-   recentRepositories: ReadonlyArray<number>,
-   repositories: ReadonlyArray<Repositoryish>,
+ // Returns the display title for a repository, which is either the alias
+ // (if available) or the name.
+ const getDisplayTitle = (r: Repositoryish) =>
 diff --git a/app/src/ui/repositories-list/repositories-list.tsx b/app/src/ui/repositories-list/repositories-list.tsx
-index 0b9379318..40b87cb22 100644
+index d5e6a10273..1117907211 100644
 --- a/app/src/ui/repositories-list/repositories-list.tsx
 +++ b/app/src/ui/repositories-list/repositories-list.tsx
-@@ -8,7 +8,13 @@ import {
-   RepositoryGroupIdentifier,
-   KnownRepositoryGroup,
-   makeRecentRepositoriesGroup,
+@@ -7,7 +7,13 @@ import {
+   Repositoryish,
+   RepositoryListGroup,
+   getGroupKey,
 +  makePinnedRepositoriesGroup,
  } from './group-repositories'
 +import {
@@ -232,7 +287,7 @@ index 0b9379318..40b87cb22 100644
  import { IFilterListGroup } from '../lib/filter-list'
  import { IMatches } from '../../lib/fuzzy-find'
  import { ILocalRepositoryState, Repository } from '../../models/repository'
-@@ -34,6 +40,7 @@ interface IRepositoriesListProps {
+@@ -33,6 +39,7 @@ interface IRepositoriesListProps {
    readonly selectedRepository: Repositoryish | null
    readonly repositories: ReadonlyArray<Repositoryish>
    readonly recentRepositories: ReadonlyArray<number>
@@ -240,26 +295,43 @@ index 0b9379318..40b87cb22 100644
  
    /** A cache of the latest repository state values, keyed by the repository id */
    readonly localRepositoryStateLookup: ReadonlyMap<
-@@ -79,6 +86,7 @@ interface IRepositoriesListProps {
+@@ -78,6 +85,7 @@ interface IRepositoriesListProps {
  
  interface IRepositoriesListState {
    readonly newRepositoryMenuExpanded: boolean
 +  readonly pinnedRepositoriesIds: ReadonlyArray<number>
+   readonly selectedItem: IRepositoryListItem | null
  }
  
- const RowHeight = 29
-@@ -139,8 +147,10 @@ export class RepositoriesList extends React.Component<
-   public constructor(props: IRepositoriesListProps) {
-     super(props)
+@@ -148,6 +156,7 @@ export class RepositoriesList extends React.Component<
  
-+    // Initialize state with current pinned repositories
      this.state = {
        newRepositoryMenuExpanded: false,
 +      pinnedRepositoriesIds: getPinnedRepositories(),
+       selectedItem: null,
+     }
+   }
+@@ -168,7 +177,9 @@ export class RepositoriesList extends React.Component<
+ 
+   private getGroupLabel(group: RepositoryListGroup) {
+     const { kind } = group
+-    if (kind === 'enterprise') {
++    if (kind === 'pins') {
++      return 'Pins'
++    } else if (kind === 'enterprise') {
+       return enableMultipleEnterpriseAccounts() ? group.host : 'Enterprise'
+     } else if (kind === 'other') {
+       return 'Other'
+@@ -177,7 +188,7 @@ export class RepositoriesList extends React.Component<
+     } else if (kind === 'recent') {
+       return 'Recent'
+     } else {
+-      assertNever(kind, `Unknown repository group kind ${kind}`)
++      return assertNever(kind, `Unknown repository group kind ${kind}`)
      }
    }
  
-@@ -201,6 +211,17 @@ export class RepositoriesList extends React.Component<
+@@ -213,6 +224,17 @@ export class RepositoriesList extends React.Component<
    ) => {
      event.preventDefault()
  
@@ -277,7 +349,7 @@ index 0b9379318..40b87cb22 100644
      const items = generateRepositoryListContextMenu({
        onRemoveRepository: this.props.onRemoveRepository,
        onShowRepository: this.props.onShowRepository,
-@@ -214,6 +235,9 @@ export class RepositoriesList extends React.Component<
+@@ -226,6 +248,9 @@ export class RepositoriesList extends React.Component<
        onViewOnGitHub: this.props.onViewOnGitHub,
        repository: item.repository,
        shellLabel: this.props.shellLabel,
@@ -287,49 +359,50 @@ index 0b9379318..40b87cb22 100644
      })
  
      showContextualMenu(items)
-@@ -236,17 +260,30 @@ export class RepositoriesList extends React.Component<
-       this.props.selectedRepository
+@@ -248,6 +273,17 @@ export class RepositoriesList extends React.Component<
+       this.props.recentRepositories
      )
  
--    const groups =
--      this.props.repositories.length > recentRepositoriesThreshold
--        ? [
--            makeRecentRepositoriesGroup(
--              this.props.recentRepositories,
--              this.props.repositories,
--              this.props.localRepositoryStateLookup
--            ),
--            ...baseGroups,
--          ]
--        : baseGroups
-+    // Create array of groups with Pins at the top, then Recent, then other categories
-+    let groups = baseGroups
-+
-+    // Add Recent group if we have enough repositories
-+    if (this.props.repositories.length > recentRepositoriesThreshold) {
-+      groups = [
-+        makeRecentRepositoriesGroup(
-+          this.props.recentRepositories,
-+          this.props.repositories,
-+          this.props.localRepositoryStateLookup
-+        ),
-+        ...groups,
-+      ]
-+    }
-+
 +    // Add Pins group if we have any pinned repositories
++    let finalGroups = groups
 +    if (this.state.pinnedRepositoriesIds.length > 0) {
 +      const pinnedGroup = makePinnedRepositoriesGroup(
 +        this.state.pinnedRepositoriesIds,
 +        this.props.repositories,
 +        this.props.localRepositoryStateLookup
 +      )
-+      groups = [pinnedGroup, ...groups]
++      finalGroups = [pinnedGroup, ...groups]
 +    }
++
+     // So there's two types of selection at play here. There's the repository
+     // selection for the whole app and then there's the keyboard selection in
+     // the list itself. If the user has selected a repository using keyboard
+@@ -255,7 +291,7 @@ export class RepositoriesList extends React.Component<
+     // repository yet we'll select the repository currently selected in the app.
+     const selectedItem =
+       this.state.selectedItem ??
+-      this.getSelectedListItem(groups, this.props.selectedRepository)
++      this.getSelectedListItem(finalGroups, this.props.selectedRepository)
  
      return (
        <div className="repository-list">
-@@ -368,4 +405,18 @@ export class RepositoriesList extends React.Component<
+@@ -269,13 +305,13 @@ export class RepositoriesList extends React.Component<
+           onItemClick={this.onItemClick}
+           renderPostFilter={this.renderPostFilter}
+           renderNoItems={this.renderNoItems}
+-          groups={groups}
++          groups={finalGroups}
+           invalidationProps={{
+             repositories: this.props.repositories,
+             filterText: this.props.filterText,
+           }}
+           onItemContextMenu={this.onItemContextMenu}
+-          getGroupAriaLabel={this.getGroupAriaLabelGetter(groups)}
++          getGroupAriaLabel={this.getGroupAriaLabelGetter(finalGroups)}
+           getItemAriaLabel={this.getItemAriaLabel}
+           onSelectionChanged={this.onSelectionChanged}
+         />
+@@ -382,4 +418,18 @@ export class RepositoriesList extends React.Component<
    private onRemoveRepositoryAlias = (repository: Repository) => {
      this.props.dispatcher.changeRepositoryAlias(repository, null)
    }
@@ -337,19 +410,19 @@ index 0b9379318..40b87cb22 100644
 +  private onPinRepository = (repository: Repository) => {
 +    addPinnedRepository(repository)
 +    this.setState(prevState => ({
-+	  pinnedRepositoriesIds: getPinnedRepositories()
++      pinnedRepositoriesIds: getPinnedRepositories()
 +    }))
 +  }
 +
 +  private onUnpinRepository = (repository: Repository) => {
 +    removePinnedRepository(repository)
 +    this.setState(prevState => ({
-+	  pinnedRepositoriesIds: getPinnedRepositories()
++      pinnedRepositoriesIds: getPinnedRepositories()
 +    }))
 +  }
  }
 diff --git a/app/src/ui/repositories-list/repository-list-item-context-menu.ts b/app/src/ui/repositories-list/repository-list-item-context-menu.ts
-index 6ee52c535..37fef342d 100644
+index 6ee52c5351..973b35dc33 100644
 --- a/app/src/ui/repositories-list/repository-list-item-context-menu.ts
 +++ b/app/src/ui/repositories-list/repository-list-item-context-menu.ts
 @@ -20,6 +20,9 @@ interface IRepositoryListItemContextMenuConfig {
@@ -365,7 +438,7 @@ index 6ee52c535..37fef342d 100644
 @@ -36,8 +39,38 @@ export const generateRepositoryListContextMenu = (
      ? `Open in ${config.shellLabel}`
      : DefaultShellLabel
-
+ 
 +  const pinItems: Array<IMenuItem> = []
 +
 +  // Only add pin/unpin options for Repository objects (not CloningRepository)
@@ -401,40 +474,6 @@ index 6ee52c535..37fef342d 100644
      {
        label: __DARWIN__ ? 'Copy Repo Name' : 'Copy repo name',
        action: () => clipboard.writeText(repository.name),
-diff --git a/app/src/ui/lib/section-filter-list.tsx b/app/src/ui/lib/section-filter-list.tsx
-index 1752c8f91..06c441978 100644
---- a/app/src/ui/lib/section-filter-list.tsx
-+++ b/app/src/ui/lib/section-filter-list.tsx
-@@ -657,6 +657,16 @@ function createStateUpdate<T extends IFilterListItem>(
-   const selectedItem = props.selectedItem
-   const groupIndices = []
- 
-+  // Check for a "Pins" group and see if the selected item is in it
-+  let isPinnedItemSelected = false
-+  if (selectedItem !== null) {
-+    const pinsGroupIndex = props.groups.findIndex(g => g.identifier === 'Pins')
-+    if (pinsGroupIndex !== -1) {
-+      const pinsGroup = props.groups[pinsGroupIndex]
-+      isPinnedItemSelected = pinsGroup.items.some(item => item.id === selectedItem.id)
-+    }
-+  }
-+
-   for (const [idx, group] of props.groups.entries()) {
-     const groupRows = new Array<IFilterListRow<T>>()
-     const items: ReadonlyArray<IMatch<T>> = filter
-@@ -679,9 +689,12 @@ function createStateUpdate<T extends IFilterListItem>(
- 
-     for (const { item, matches } of items) {
-       if (selectedItem && item.id === selectedItem.id) {
--        selectedRow = {
--          section,
--          row: groupRows.length,
-+        if ((group.identifier === 'Pins') ||
-+            (group.identifier !== 'Pins' && !isPinnedItemSelected)) {
-+          selectedRow = {
-+            section,
-+            row: groupRows.length,
-+          }
-         }
-       }
- 
+-- 
+2.43.0
+

@@ -1,5 +1,9 @@
+---
+ app/src/ui/lib/update-store.ts | 29 +++++------------------------
+ 1 file changed, 5 insertions(+), 24 deletions(-)
+
 diff --git a/app/src/ui/lib/update-store.ts b/app/src/ui/lib/update-store.ts
-index ce26a5ab4..64e649c25 100644
+index ce26a5ab4f..64e649c25b 100644
 --- a/app/src/ui/lib/update-store.ts
 +++ b/app/src/ui/lib/update-store.ts
 @@ -3,7 +3,6 @@ const lastSuccessfulCheckKey = 'last-successful-update-check'
@@ -45,3 +49,6 @@ index ce26a5ab4..64e649c25 100644
    }
  
    private async getUpdatesUrl(skipGuidCheck: boolean) {
+-- 
+2.43.0
+

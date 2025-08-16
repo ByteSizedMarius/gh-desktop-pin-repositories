@@ -1,5 +1,9 @@
+---
+ script/build.ts | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
 diff --git a/script/build.ts b/script/build.ts
-index b51060b27..f85ebf6a9 100755
+index b51060b27d..2ecdb1262f 100755
 --- a/script/build.ts
 +++ b/script/build.ts
 @@ -202,9 +202,10 @@ function packageApp() {
@@ -10,9 +14,12 @@ index b51060b27..f85ebf6a9 100755
 -            ? 'x-github-desktop-auth'
 -            : 'x-github-desktop-dev-auth',
 +          // !isDevelopmentBuild
-+          // ? 'x-github-desktop-auth'
-+          // :
++          //   ? 'x-github-desktop-auth'
++          //   : 'x-github-desktop-dev-auth',
 +          'x-github-desktop-dev-auth',
            'x-github-client',
            'github-mac',
          ],
+-- 
+2.43.0
+

@@ -21,9 +21,9 @@ Please note:
 ```
 git clone https://github.com/desktop/desktop
 cd desktop
-git checkout 19c76e1
+git checkout 1408726
 ```
-Latter command controls which version of github the patch is applied to. `19c76e1` is `3.4.18`. 
+# Latter command controls which version of github the patch is applied to. `1408726` is `3.5.2`. 
 Changes to the patches may be required for newer [versions](https://github.com/desktop/desktop/releases).
 
 3. **Clone the patches**
@@ -40,26 +40,26 @@ This will:
 - Disable automatic updates, as this would remove the patch
 - Fix the authentication handler, as when building for prod without the github desktop app tokens (which are obv not public), the wrong oauth callback is registered, making logging in more difficult
 
-Note: If you also want to remove the recent section (I found it not to be necessary anymore with the ability to pin), apply `../gh-desktop-pin-repositories/add_pins_remove_recent.patch` instead of `add_pins.patch`
+Note: If you DO NOT want to remove the recent section (I found it not to be necessary anymore with the ability to pin), apply `../gh-desktop-pin-repositories/add_pins.patch` instead of `add_pins_remove_recent.patch`
 
 ```
-git apply ../gh-desktop-pin-repositories/add_pins.patch ../gh-desktop-pin-repositories/disable_auto_updates.patch ../gh-desktop-pin-repositories/fix_auth_handler.patch
+git apply ../gh-desktop-pin-repositories/add_pins_remove_recent.patch ../gh-desktop-pin-repositories/disable_auto_updates.patch ../gh-desktop-pin-repositories/fix_auth_handler.patch
 ```
 
 5. **Build**
 
-If you instead just want to try it out (without replacing your current installation) you may run it in development mode first:
-```
-yarn
-yarn build:dev
-yarn start
-```
-
-Otherwise, build the installer:
+Next, build the installer:
 ```
 yarn
 yarn build:prod
 yarn package
+```
+
+You may also run it in development mode instead:
+```
+yarn
+yarn build:dev
+yarn start
 ```
 
 6. **Install**
@@ -67,6 +67,8 @@ yarn package
 Yarn helpfully prints the installer path to the console.
 
 It should work without having to uninstall your previous version, keeping your authentication, repositories and settings.
+
+> Note: For enterprise installations (or if there are issues with authentication), install standard github desktop first and authenticate, then "update" to the patched method by executing the installer.
 
 ---
 
