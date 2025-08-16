@@ -24,7 +24,7 @@ git clone https://github.com/desktop/desktop
 cd desktop
 git checkout 1408726
 ```
-# Latter command controls which version of github the patch is applied to. `1408726` is `3.5.2`. 
+Latter command controls which version of github the patch is applied to. `1408726` is `3.5.2`. 
 Changes to the patches may be required for newer [versions](https://github.com/desktop/desktop/releases).
 
 3. **Clone the patches**
