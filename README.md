@@ -19,7 +19,7 @@ The following patches are available. They can be freely applied in any combinati
 | **remove-recent** | Remove the "Recent" repositories section |
 | **disable-auto-updates** | Disable automatic updates, as updating would remove the patches |
 | **fix-auth-handler** | Fix the authentication handler, as when building for prod without the GitHub Desktop app tokens (which are not public), the wrong OAuth callback is registered, making logging in more difficult |
-| **separate-instance** | Run alongside official GitHub Desktop or run multiple patched versions simultaneously with multiple accounts. Create one version without and one with this patch and install them both |
+| **separate-instance** | Run alongside official GitHub Desktop or run multiple patched versions simultaneously with multiple accounts. Create one version without and one with this patch and install them both. See [Multiple Accounts](#multiple-accounts) |
 
 To get pins to work, at least `pins` and `fix-auth-handler` are required. Without `disable-auto-updates`, the patched version will be overwritten on the next automatic update.
 
@@ -51,3 +51,26 @@ The script will:
 - The resulting installer and executable will be unsigned
 - Uses the Developer OAuth app for authentication. For enterprise installations or auth issues, install official GitHub Desktop first, authenticate, then run the patched installer to "update". See also [official docs](https://github.com/desktop/desktop/blob/development/docs/technical/oauth.md).
 - If `separate-instance` is applied, a separate instance is installed, allowing multiple accounts on one machine
+
+## Multiple Accounts
+
+If you use two accounts, both will overwrite your global git config with whichever you install later. To fix this, keep the second account's repos in a dedicated directory and use a conditional git config:
+
+**Default `~/.gitconfig`:**
+```ini
+[user]
+    name = Your Name
+    email = your@email.com
+
+[includeIf "gitdir:C:/path/to/work-repos/**"]
+    path = ~/.gitconfig-work
+```
+
+**`~/.gitconfig-work`:**
+```ini
+[user]
+    name = Work Name
+    email = work@email.com
+```
+
+This is just one way to solve this issue.
