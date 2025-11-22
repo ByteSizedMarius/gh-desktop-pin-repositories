@@ -19,6 +19,12 @@ const FEATURE_PATCHES = [
     recommended: true,
   },
   {
+    name: 'archive',
+    file: 'archive.patch',
+    description: 'Archive repositories to a section at the bottom of the list',
+    recommended: false,
+  },
+  {
     name: 'remove-recent',
     file: 'remove-recent.patch',
     description: 'Remove the "Recent" repositories section',
@@ -487,6 +493,7 @@ async function testCombinations(targetDir) {
 async function main() {
   const args = process.argv.slice(2)
   const isTestMode = args.includes('--test')
+  const isDebugMode = args.includes('--debug')
 
   console.log('\n' + '='.repeat(50))
   console.log('  GitHub Desktop Patcher')
@@ -559,9 +566,43 @@ async function main() {
   }
 
   // Step 5: Build guidance
-  logStep(5, totalSteps, 'Ready to build!')
+  logStep(5, totalSteps, isDebugMode ? 'Ready to run!' : 'Ready to build!')
 
-  console.log(`
+  if (isDebugMode) {
+    console.log(`
+  Patches applied successfully! Next steps:
+
+  1. Install dependencies:
+     cd "${finalTargetPath}"
+     yarn
+
+  2. Build dev version:
+     yarn build:dev
+
+  3. Run in dev mode:
+     yarn start
+`)
+
+    const runDev = await promptYesNo('Run in dev mode now?', false)
+    if (runDev) {
+      try {
+        log('\nRunning yarn...')
+        execSync('yarn', { cwd: finalTargetPath, stdio: 'inherit' })
+        logSuccess('Dependencies installed')
+
+        log('\nRunning yarn build:dev...')
+        execSync('yarn build:dev', { cwd: finalTargetPath, stdio: 'inherit' })
+        logSuccess('Dev build complete')
+
+        log('\nRunning yarn start...')
+        execSync('yarn start', { cwd: finalTargetPath, stdio: 'inherit' })
+      } catch (e) {
+        logError('Dev mode failed')
+        process.exit(1)
+      }
+    }
+  } else {
+    console.log(`
   Patches applied successfully! Next steps:
 
   1. Install dependencies:
@@ -577,19 +618,27 @@ async function main() {
   The built app will be in dist/
 `)
 
-  const runBuild = await promptYesNo('Run build now?', false)
-  if (runBuild) {
-    try {
-      log('\nRunning yarn...')
-      execSync('yarn', { cwd: finalTargetPath, stdio: 'inherit' })
-      logSuccess('Dependencies installed')
+    const runBuild = await promptYesNo('Run build now?', false)
+    if (runBuild) {
+      try {
+        log('\nRunning yarn...')
+        execSync('yarn', { cwd: finalTargetPath, stdio: 'inherit' })
+        logSuccess('Dependencies installed')
 
-      log('\nRunning yarn build:prod...')
-      execSync('yarn build:prod', { cwd: finalTargetPath, stdio: 'inherit' })
-      logSuccess('Build complete!')
-    } catch (e) {
-      logError('Build failed')
-      process.exit(1)
+        log('\nRunning yarn build:prod...')
+        execSync('yarn build:prod', { cwd: finalTargetPath, stdio: 'inherit' })
+        logSuccess('Build complete!')
+
+        const runPackage = await promptYesNo('\nPackage installer?', false)
+        if (runPackage) {
+          log('\nRunning yarn package...')
+          execSync('yarn package', { cwd: finalTargetPath, stdio: 'inherit' })
+          logSuccess('Installer packaged! Check dist/ for the installer.')
+        }
+      } catch (e) {
+        logError('Build failed')
+        process.exit(1)
+      }
     }
   }
 }

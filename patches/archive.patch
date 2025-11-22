@@ -1,0 +1,276 @@
+diff --git a/app/src/lib/stores/repository-archiving.ts b/app/src/lib/stores/repository-archiving.ts
+new file mode 100644
+index 000000000..381456138
+--- /dev/null
++++ b/app/src/lib/stores/repository-archiving.ts
+@@ -0,0 +1,57 @@
++import * as LocalStorage from '../local-storage'
++import { Repository } from '../../models/repository'
++
++/** Storage key */
++export const ArchivedRepositoriesKey = 'archived-repositories'
++
++/**
++ * Get list of archived repo IDs
++ */
++export function getArchivedRepositories(): ReadonlyArray<number> {
++  return LocalStorage.getNumberArray(ArchivedRepositoriesKey)
++}
++
++/**
++ * Store list of archived repo IDs
++ */
++export function setArchivedRepositories(
++  repositories: ReadonlyArray<number>
++): void {
++  LocalStorage.setNumberArray(ArchivedRepositoriesKey, repositories)
++}
++
++/**
++ * Add repo to archived list
++ */
++export function addArchivedRepository(repository: Repository): void {
++  const archivedRepositories = getArchivedRepositories()
++  if (archivedRepositories.includes(repository.id)) {
++    return
++  }
++
++  const updatedArchivedRepositories = [...archivedRepositories, repository.id]
++  setArchivedRepositories(updatedArchivedRepositories)
++}
++
++/**
++ * Remove a repo from archived list
++ */
++export function removeArchivedRepository(repository: Repository): void {
++  const archivedRepositories = getArchivedRepositories()
++  if (!archivedRepositories.includes(repository.id)) {
++    return
++  }
++
++  const updatedArchivedRepositories = archivedRepositories.filter(
++    id => id !== repository.id
++  )
++  setArchivedRepositories(updatedArchivedRepositories)
++}
++
++/**
++ * Check if repo is archived
++ */
++export function isRepositoryArchived(repository: Repository): boolean {
++  const archivedRepositories = getArchivedRepositories()
++  return archivedRepositories.includes(repository.id)
++}
+diff --git a/app/src/ui/repositories-list/group-repositories.ts b/app/src/ui/repositories-list/group-repositories.ts
+index 393eb51cb..7ee01c3b8 100644
+--- a/app/src/ui/repositories-list/group-repositories.ts
++++ b/app/src/ui/repositories-list/group-repositories.ts
+@@ -19,6 +19,9 @@ export type RepositoryListGroup =
+   | {
+       kind: 'recent' | 'other'
+     }
++  | {
++      kind: 'archive'
++    }
+   | {
+       kind: 'dotcom'
+       owner: Owner
+@@ -46,6 +49,8 @@ export const getGroupKey = (group: RepositoryListGroup) => {
+         : `2:enterprise`
+     case 'other':
+       return `3:other`
++    case 'archive':
++      return `4:archive`
+     default:
+       assertNever(group, `Unknown repository group kind ${kind}`)
+   }
+@@ -173,3 +178,38 @@ const toSortedListItems = (
+       caseInsensitiveCompare(getDisplayTitle(x), getDisplayTitle(y))
+     )
+ }
++
++export function makeArchivedRepositoriesGroup(
++  repositories: ReadonlyArray<Repositoryish>,
++  archivedRepositoryIds: ReadonlyArray<number>,
++  localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>
++): IFilterListGroup<IRepositoryListItem, RepositoryListGroup> | null {
++  const archivedRepos = repositories.filter(r =>
++    archivedRepositoryIds.includes(r.id)
++  )
++  if (archivedRepos.length === 0) {
++    return null
++  }
++
++  const group: RepositoryListGroup = { kind: 'archive' }
++  const items: IRepositoryListItem[] = archivedRepos
++    .map(r => {
++      const repoState = localRepositoryStateLookup.get(r.id)
++      const title = r instanceof Repository && r.alias != null ? r.alias : r.name
++      return {
++        text: r instanceof Repository ? [title, nameOf(r)] : [title],
++        id: r.id.toString(),
++        repository: r,
++        needsDisambiguation: false,
++        aheadBehind: repoState?.aheadBehind ?? null,
++        changedFilesCount: repoState?.changedFilesCount ?? 0,
++      }
++    })
++    .sort(({ repository: x }, { repository: y }) => {
++      const xTitle = x instanceof Repository && x.alias != null ? x.alias : x.name
++      const yTitle = y instanceof Repository && y.alias != null ? y.alias : y.name
++      return caseInsensitiveCompare(xTitle, yTitle)
++    })
++
++  return { identifier: group, items }
++}
+diff --git a/app/src/ui/repositories-list/repositories-list.tsx b/app/src/ui/repositories-list/repositories-list.tsx
+index d5e6a1027..ca93dc928 100644
+--- a/app/src/ui/repositories-list/repositories-list.tsx
++++ b/app/src/ui/repositories-list/repositories-list.tsx
+@@ -26,6 +26,13 @@ import { generateRepositoryListContextMenu } from '../repositories-list/reposito
+ import { SectionFilterList } from '../lib/section-filter-list'
+ import { assertNever } from '../../lib/fatal-error'
+ import { enableMultipleEnterpriseAccounts } from '../../lib/feature-flag'
++import { makeArchivedRepositoriesGroup } from './group-repositories'
++import {
++  getArchivedRepositories,
++  addArchivedRepository,
++  removeArchivedRepository,
++  isRepositoryArchived,
++} from '../../lib/stores/repository-archiving'
+ 
+ const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
+ 
+@@ -79,6 +86,7 @@ interface IRepositoriesListProps {
+ interface IRepositoriesListState {
+   readonly newRepositoryMenuExpanded: boolean
+   readonly selectedItem: IRepositoryListItem | null
++  readonly archivedRepositoriesIds: ReadonlyArray<number>
+ }
+ 
+ const RowHeight = 29
+@@ -149,6 +157,7 @@ export class RepositoriesList extends React.Component<
+     this.state = {
+       newRepositoryMenuExpanded: false,
+       selectedItem: null,
++      archivedRepositoriesIds: getArchivedRepositories(),
+     }
+   }
+ 
+@@ -176,6 +185,8 @@ export class RepositoriesList extends React.Component<
+       return group.owner.login
+     } else if (kind === 'recent') {
+       return 'Recent'
++    } else if (kind === 'archive') {
++      return 'Archive'
+     } else {
+       assertNever(kind, `Unknown repository group kind ${kind}`)
+     }
+@@ -214,6 +225,10 @@ export class RepositoriesList extends React.Component<
+     event.preventDefault()
+ 
+     const items = generateRepositoryListContextMenu({
++      repository: item.repository,
++      isArchived: item.repository instanceof Repository && isRepositoryArchived(item.repository),
++      onArchiveRepository: this.onArchiveRepository,
++      onUnarchiveRepository: this.onUnarchiveRepository,
+       onRemoveRepository: this.props.onRemoveRepository,
+       onShowRepository: this.props.onShowRepository,
+       onOpenInShell: this.props.onOpenInShell,
+@@ -224,7 +239,6 @@ export class RepositoriesList extends React.Component<
+       onChangeRepositoryAlias: this.onChangeRepositoryAlias,
+       onRemoveRepositoryAlias: this.onRemoveRepositoryAlias,
+       onViewOnGitHub: this.props.onViewOnGitHub,
+-      repository: item.repository,
+       shellLabel: this.props.shellLabel,
+     })
+ 
+@@ -242,11 +256,17 @@ export class RepositoriesList extends React.Component<
+       this.getGroupLabel(groups[group].identifier)
+ 
+   public render() {
+-    const groups = this.getRepositoryGroups(
+-      this.props.repositories,
++    const baseGroups = this.getRepositoryGroups(
++      this.props.repositories.filter(r => !this.state.archivedRepositoriesIds.includes(r.id)),
+       this.props.localRepositoryStateLookup,
+       this.props.recentRepositories
+     )
++    const archivedGroup = makeArchivedRepositoriesGroup(
++      this.props.repositories,
++      this.state.archivedRepositoriesIds,
++      this.props.localRepositoryStateLookup
++    )
++    const groups = archivedGroup ? [...baseGroups, archivedGroup] : baseGroups
+ 
+     // So there's two types of selection at play here. There's the repository
+     // selection for the whole app and then there's the keyboard selection in
+@@ -372,6 +392,16 @@ export class RepositoriesList extends React.Component<
+     this.props.dispatcher.showPopup({ type: PopupType.CreateRepository })
+   }
+ 
++  private onArchiveRepository = (repository: Repository) => {
++    addArchivedRepository(repository)
++    this.setState({ archivedRepositoriesIds: getArchivedRepositories() })
++  }
++
++  private onUnarchiveRepository = (repository: Repository) => {
++    removeArchivedRepository(repository)
++    this.setState({ archivedRepositoriesIds: getArchivedRepositories() })
++  }
++
+   private onChangeRepositoryAlias = (repository: Repository) => {
+     this.props.dispatcher.showPopup({
+       type: PopupType.ChangeRepositoryAlias,
+diff --git a/app/src/ui/repositories-list/repository-list-item-context-menu.ts b/app/src/ui/repositories-list/repository-list-item-context-menu.ts
+index 6ee52c535..0082e305b 100644
+--- a/app/src/ui/repositories-list/repository-list-item-context-menu.ts
++++ b/app/src/ui/repositories-list/repository-list-item-context-menu.ts
+@@ -10,6 +10,9 @@ import {
+ 
+ interface IRepositoryListItemContextMenuConfig {
+   repository: Repositoryish
++  isArchived?: boolean
++  onArchiveRepository?: (repository: Repository) => void
++  onUnarchiveRepository?: (repository: Repository) => void
+   shellLabel: string | undefined
+   externalEditorLabel: string | undefined
+   askForConfirmationOnRemoveRepository: boolean
+@@ -68,6 +71,7 @@ export const generateRepositoryListContextMenu = (
+       enabled: !missing,
+     },
+     { type: 'separator' },
++    ...buildArchiveMenuItems(config),
+     {
+       label: config.askForConfirmationOnRemoveRepository ? 'Remove…' : 'Remove',
+       action: () => config.onRemoveRepository(repository),
+@@ -103,3 +107,29 @@ const buildAliasMenuItems = (
+ 
+   return items
+ }
++
++const buildArchiveMenuItems = (
++  config: IRepositoryListItemContextMenuConfig
++): ReadonlyArray<IMenuItem> => {
++  const { repository } = config
++
++  if (!(repository instanceof Repository)) {
++    return []
++  }
++
++  if (config.isArchived) {
++    return [
++      {
++        label: 'Unarchive',
++        action: () => config.onUnarchiveRepository?.(repository),
++      },
++    ]
++  }
++
++  return [
++    {
++      label: 'Archive',
++      action: () => config.onArchiveRepository?.(repository),
++    },
++  ]
++}

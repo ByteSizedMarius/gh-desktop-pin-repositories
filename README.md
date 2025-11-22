@@ -1,27 +1,37 @@
-# gh-desktop-pin-repositories
+# gh-desktop-patches
 
-Adds the option to pin repos at the top of the repository list in GitHub Desktop.
+This repository contains multiple different patches for github desktop, including the ability to pin repositories at the top of the repo list.
 
 Context: https://github.com/desktop/desktop/issues/8183, https://github.com/desktop/desktop/issues/3410
+
+Please check [Notes](#notes) for the tradeoffs made by using this method.
 
 ![Pinning Action](pin.gif)
 
 ## Features
 
+The following patches are available. They can be freely applied in any combination. 
+
 | Patch | Description |
 |-------|-------------|
 | **pins** | Pin repositories to the top of the list |
+| **archive** | Archive repositories to a section at the bottom of the list |
 | **remove-recent** | Remove the "Recent" repositories section |
 | **disable-auto-updates** | Disable automatic updates, as updating would remove the patches |
 | **fix-auth-handler** | Fix the authentication handler, as when building for prod without the GitHub Desktop app tokens (which are not public), the wrong OAuth callback is registered, making logging in more difficult |
-| **separate-instance** | Run alongside official GitHub Desktop or run multiple patched versions simultaneously with multiple accounts |
+| **separate-instance** | Run alongside official GitHub Desktop or run multiple patched versions simultaneously with multiple accounts. Create one version without and one with this patch and install them both |
+
+To get pins to work, at least `pins` and `fix-auth-handler` are required. Without `disable-auto-updates`, the patched version will be overwritten on the next automatic update.
 
 ## Quick Start
 
+> Requires Node.js, Git, and Yarn installed
+
 ```bash
-# Requires Node.js, Git, and Yarn installed
 node apply.js
 ```
+
+### Flags
 
 The script will:
 1. Check prerequisites
@@ -30,9 +40,14 @@ The script will:
 4. Applies patches
 5. Guide you through the build process
 
+| Flag | Description |
+|------|-------------|
+| `--test` | Test all patch combinations |
+| `--debug` | Run in dev mode (`yarn start`) instead of building |
+
 ## Notes
 
 - These patches are for GitHub Desktop 3.5.2 (`release-3.5.2`)
 - The resulting installer and executable will be unsigned
-- Uses the Developer OAuth app for authentication. For enterprise installations or auth issues, install official GitHub Desktop first, authenticate, then run the patched installer to "update". See [official docs](https://github.com/desktop/desktop/blob/development/docs/technical/oauth.md).
+- Uses the Developer OAuth app for authentication. For enterprise installations or auth issues, install official GitHub Desktop first, authenticate, then run the patched installer to "update". See also [official docs](https://github.com/desktop/desktop/blob/development/docs/technical/oauth.md).
 - If `separate-instance` is applied, a separate instance is installed, allowing multiple accounts on one machine
