@@ -244,7 +244,7 @@ index 6ee52c535..0082e305b 100644
      {
        label: config.askForConfirmationOnRemoveRepository ? 'Remove…' : 'Remove',
        action: () => config.onRemoveRepository(repository),
-@@ -103,3 +107,29 @@ const buildAliasMenuItems = (
+@@ -103,3 +107,33 @@ const buildAliasMenuItems = (
  
    return items
  }
@@ -258,7 +258,7 @@ index 6ee52c535..0082e305b 100644
 +    return []
 +  }
 +
-+  if (config.isArchived) {
++  if (config.isArchived && config.onUnarchiveRepository) {
 +    return [
 +      {
 +        label: 'Unarchive',
@@ -267,10 +267,14 @@ index 6ee52c535..0082e305b 100644
 +    ]
 +  }
 +
-+  return [
-+    {
-+      label: 'Archive',
-+      action: () => config.onArchiveRepository?.(repository),
-+    },
-+  ]
++  if (!config.isArchived && config.onArchiveRepository) {
++    return [
++      {
++        label: 'Archive',
++        action: () => config.onArchiveRepository?.(repository),
++      },
++    ]
++  }
++
++  return []
 +}
