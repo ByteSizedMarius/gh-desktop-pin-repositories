@@ -1,0 +1,60 @@
+diff --git a/app/src/ui/repositories-list/group-repositories.ts b/app/src/ui/repositories-list/group-repositories.ts
+index 393eb51..f5097eb 100644
+--- a/app/src/ui/repositories-list/group-repositories.ts
++++ b/app/src/ui/repositories-list/group-repositories.ts
+@@ -61,8 +61,6 @@ export interface IRepositoryListItem extends IFilterListItem {
+   readonly changedFilesCount: number
+ }
+ 
+-const recentRepositoriesThreshold = 7
+-
+ const getHostForRepository = (repo: RepositoryWithGitHubRepository) =>
+   new URL(getHTMLURL(repo.gitHubRepository.endpoint)).host
+ 
+@@ -82,8 +80,6 @@ export function groupRepositories(
+   localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
+   recentRepositories: ReadonlyArray<number>
+ ): ReadonlyArray<IFilterListGroup<IRepositoryListItem, RepositoryListGroup>> {
+-  const includeRecentGroup = repositories.length > recentRepositoriesThreshold
+-  const recentSet = includeRecentGroup ? new Set(recentRepositories) : undefined
+   const groups = new Map<string, RepoGroupItem>()
+ 
+   const addToGroup = (group: RepositoryListGroup, repo: Repositoryish) => {
+@@ -98,10 +94,6 @@ export function groupRepositories(
+   }
+ 
+   for (const repo of repositories) {
+-    if (recentSet?.has(repo.id) && repo instanceof Repository) {
+-      addToGroup({ kind: 'recent' }, repo)
+-    }
+-
+     addToGroup(getGroupForRepository(repo), repo)
+   }
+ 
+@@ -133,12 +125,6 @@ const toSortedListItems = (
+   const allNames = new Map<string, number>()
+ 
+   for (const groupItem of groups.values()) {
+-    // All items in the recent group are by definition present in another
+-    // group and therefore we don't want to count them.
+-    if (groupItem.group.kind === 'recent') {
+-      continue
+-    }
+-
+     for (const title of groupItem.repos.map(getDisplayTitle)) {
+       allNames.set(title, (allNames.get(title) ?? 0) + 1)
+       if (groupItem.group === group) {
+@@ -160,11 +146,8 @@ const toSortedListItems = (
+           // If the repository is in the enterprise group and has a duplicate
+           // name in the group, we need to disambiguate it. We don't have to
+           // disambiguate repositories in the 'dotcom' group because they are
+-          // already grouped by owner. If the repository is in the 'recent'
+-          // group and has a duplicate name in any group, we need to
+-          // disambiguate it.
+-          ((groupNames.get(title) ?? 0) > 1 && group.kind === 'enterprise') ||
+-          ((allNames.get(title) ?? 0) > 1 && group.kind === 'recent'),
++          // already grouped by owner.
++          (groupNames.get(title) ?? 0) > 1 && group.kind === 'enterprise',
+         aheadBehind: repoState?.aheadBehind ?? null,
+         changedFilesCount: repoState?.changedFilesCount ?? 0,
+       }
