@@ -52,6 +52,12 @@ const STANDALONE_PATCHES = [
     description: 'Run alongside official GitHub Desktop (for multiple accounts)',
     recommended: false,
   },
+  {
+    name: 'worktree',
+    file: 'worktree.patch',
+    description: 'Detect branches in worktrees and offer to add them to Desktop',
+    recommended: false,
+  },
 ]
 
 const ALL_PATCHES = [...FEATURE_PATCHES, ...STANDALONE_PATCHES]

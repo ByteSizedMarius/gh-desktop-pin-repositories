@@ -20,6 +20,7 @@ The following patches are available. They can be freely applied in any combinati
 | **disable-auto-updates** | Disable automatic updates, as updating would remove the patches |
 | **fix-auth-handler** | Fix the authentication handler, as when building for prod without the GitHub Desktop app tokens (which are not public), the wrong OAuth callback is registered, making logging in more difficult |
 | **separate-instance** | Run alongside official GitHub Desktop or run multiple patched versions simultaneously with multiple accounts. Create one version without and one with this patch and install them both. See [Multiple Accounts](#multiple-accounts) |
+| **worktree** *(experimental)* | Detect when a branch is checked out in another worktree and offer to add that worktree to GitHub Desktop |
 
 To get pins to work, at least `pins` and `fix-auth-handler` are required. Without `disable-auto-updates`, the patched version will be overwritten on the next automatic update.
 

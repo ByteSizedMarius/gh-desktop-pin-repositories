@@ -1,0 +1,278 @@
+diff --git a/app/src/lib/git/worktree.ts b/app/src/lib/git/worktree.ts
+new file mode 100644
+index 000000000..1347e067e
+--- /dev/null
++++ b/app/src/lib/git/worktree.ts
+@@ -0,0 +1,89 @@
++import { git } from './core'
++import { Repository } from '../../models/repository'
++
++export interface IWorktree {
++  /** Absolute path to the worktree directory */
++  readonly path: string
++  /** The branch checked out in this worktree, or null if detached HEAD */
++  readonly branch: string | null
++  /** Whether this is the main worktree (the original repo location) */
++  readonly isMain: boolean
++}
++
++/**
++ * Get all worktrees for the repository.
++ *
++ * Parses `git worktree list --porcelain` output which has the format:
++ * ```
++ * worktree /path/to/main
++ * HEAD abc123...
++ * branch refs/heads/main
++ *
++ * worktree /path/to/linked
++ * HEAD def456...
++ * branch refs/heads/feature
++ * ```
++ */
++export async function getWorktrees(
++  repository: Repository
++): Promise<ReadonlyArray<IWorktree>> {
++  const result = await git(
++    ['worktree', 'list', '--porcelain'],
++    repository.path,
++    'getWorktrees'
++  )
++
++  const worktrees: IWorktree[] = []
++  const blocks = result.stdout.split('\n\n').filter(b => b.trim())
++
++  for (const block of blocks) {
++    const lines = block.split('\n')
++    let path: string | null = null
++    let branch: string | null = null
++    let isMain = false
++
++    for (const line of lines) {
++      if (line.startsWith('worktree ')) {
++        path = line.substring('worktree '.length)
++        // First worktree in the list is always the main worktree
++        isMain = worktrees.length === 0
++      } else if (line.startsWith('branch ')) {
++        // branch refs/heads/feature -> feature
++        const ref = line.substring('branch '.length)
++        branch = ref.replace('refs/heads/', '')
++      }
++      // We ignore HEAD and other lines, only care about path and branch
++    }
++
++    if (path !== null) {
++      worktrees.push({ path, branch, isMain })
++    }
++  }
++
++  return worktrees
++}
++
++/**
++ * Find if a branch is checked out in another worktree.
++ *
++ * @returns The worktree path if the branch is checked out elsewhere, null otherwise
++ */
++export async function findWorktreeForBranch(
++  repository: Repository,
++  branchName: string
++): Promise<string | null> {
++  const worktrees = await getWorktrees(repository)
++
++  for (const worktree of worktrees) {
++    // Skip the main worktree (we're trying to checkout FROM somewhere)
++    if (worktree.isMain) {
++      continue
++    }
++
++    if (worktree.branch === branchName) {
++      return worktree.path
++    }
++  }
++
++  return null
++}
+diff --git a/app/src/lib/stores/app-store.ts b/app/src/lib/stores/app-store.ts
+index 69598dedc..f54744f0e 100644
+--- a/app/src/lib/stores/app-store.ts
++++ b/app/src/lib/stores/app-store.ts
+@@ -332,6 +332,7 @@ import { offsetFromNow } from '../offset-from'
+ import { findContributionTargetDefaultBranch } from '../branch'
+ import { ValidNotificationPullRequestReview } from '../valid-notification-pull-request-review'
+ import { determineMergeability } from '../git/merge-tree'
++import { findWorktreeForBranch } from '../git/worktree'
+ import { PopupManager } from '../popup-manager'
+ import { resizableComponentClass } from '../../ui/resizable'
+ import { compare } from '../compare'
+@@ -4010,6 +4011,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
+       return repository
+     }
+ 
++    // Check if the branch is already checked out in another worktree
++    const worktreePath = await findWorktreeForBranch(repository, branch.name)
++    if (worktreePath !== null) {
++      this._showPopup({
++        type: PopupType.BranchInWorktree,
++        repository,
++        branchName: branch.name,
++        worktreePath,
++      })
++      return repository
++    }
++
+     let strategy = explicitStrategy ?? this.uncommittedChangesStrategy
+ 
+     // The user hasn't been presented with an explicit choice
+diff --git a/app/src/models/popup.ts b/app/src/models/popup.ts
+index 61ca273d8..58374cbc0 100644
+--- a/app/src/models/popup.ts
++++ b/app/src/models/popup.ts
+@@ -103,6 +103,7 @@ export enum PopupType {
+   BypassPushProtection = 'BypassPushProtection',
+   GenerateCommitMessageOverrideWarning = 'GenerateCommitMessageOverrideWarning',
+   GenerateCommitMessageDisclaimer = 'GenerateCommitMessageDisclaimer',
++  BranchInWorktree = 'BranchInWorktree',
+ }
+ 
+ interface IBasePopup {
+@@ -464,5 +465,11 @@ export type PopupDetail =
+       repository: Repository
+       filesSelected: ReadonlyArray<WorkingDirectoryFileChange>
+     }
++  | {
++      type: PopupType.BranchInWorktree
++      repository: Repository
++      branchName: string
++      worktreePath: string
++    }
+ 
+ export type Popup = IBasePopup & PopupDetail
+diff --git a/app/src/ui/app.tsx b/app/src/ui/app.tsx
+index 520f0d45a..3941d9641 100644
+--- a/app/src/ui/app.tsx
++++ b/app/src/ui/app.tsx
+@@ -108,6 +108,7 @@ import { PushNeedsPullWarning } from './push-needs-pull'
+ import { getCurrentBranchForcePushState } from '../lib/rebase'
+ import { Banner, BannerType } from '../models/banner'
+ import { StashAndSwitchBranch } from './stash-changes/stash-and-switch-branch-dialog'
++import { BranchInWorktreeDialog } from './branch-in-worktree/branch-in-worktree-dialog'
+ import { OverwriteStash } from './stash-changes/overwrite-stashed-changes-dialog'
+ import { ConfirmDiscardStashDialog } from './stashing/confirm-discard-stash'
+ import { ConfirmCheckoutCommitDialog } from './checkout/confirm-checkout-commit'
+@@ -2572,6 +2573,18 @@ export class App extends React.Component<IAppProps, IAppState> {
+           />
+         )
+       }
++      case PopupType.BranchInWorktree: {
++        return (
++          <BranchInWorktreeDialog
++            key="branch-in-worktree"
++            dispatcher={this.props.dispatcher}
++            repository={popup.repository}
++            branchName={popup.branchName}
++            worktreePath={popup.worktreePath}
++            onDismissed={onPopupDismissedFn}
++          />
++        )
++      }
+       default:
+         return assertNever(popup, `Unknown popup type: ${popup}`)
+     }
+diff --git a/app/src/ui/branch-in-worktree/branch-in-worktree-dialog.tsx b/app/src/ui/branch-in-worktree/branch-in-worktree-dialog.tsx
+new file mode 100644
+index 000000000..556645906
+--- /dev/null
++++ b/app/src/ui/branch-in-worktree/branch-in-worktree-dialog.tsx
+@@ -0,0 +1,91 @@
++import * as React from 'react'
++import { Dialog, DialogContent, DialogFooter } from '../dialog'
++import { Repository } from '../../models/repository'
++import { Dispatcher } from '../dispatcher'
++import { Row } from '../lib/row'
++import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
++
++interface IBranchInWorktreeDialogProps {
++  readonly repository: Repository
++  readonly dispatcher: Dispatcher
++  readonly branchName: string
++  readonly worktreePath: string
++  readonly onDismissed: () => void
++}
++
++interface IBranchInWorktreeDialogState {
++  readonly isAddingRepository: boolean
++}
++
++/**
++ * Dialog shown when attempting to checkout a branch that is already
++ * checked out in another worktree.
++ */
++export class BranchInWorktreeDialog extends React.Component<
++  IBranchInWorktreeDialogProps,
++  IBranchInWorktreeDialogState
++> {
++  public constructor(props: IBranchInWorktreeDialogProps) {
++    super(props)
++    this.state = { isAddingRepository: false }
++  }
++
++  public render() {
++    const { isAddingRepository } = this.state
++    const { branchName, worktreePath } = this.props
++
++    return (
++      <Dialog
++        id="branch-in-worktree"
++        title={__DARWIN__ ? 'Branch in Use' : 'Branch in use'}
++        onDismissed={this.props.onDismissed}
++        onSubmit={this.onAddToDesktop}
++        loading={isAddingRepository}
++        disabled={isAddingRepository}
++        type="normal"
++      >
++        <DialogContent>
++          <Row>
++            <p>
++              The branch <strong>{branchName}</strong> is already checked out in
++              a worktree at:
++            </p>
++          </Row>
++          <Row>
++            <code className="worktree-path">{worktreePath}</code>
++          </Row>
++          <Row>
++            <p>
++              Would you like to add that worktree to GitHub Desktop so you can
++              work on it there?
++            </p>
++          </Row>
++        </DialogContent>
++        <DialogFooter>
++          <OkCancelButtonGroup
++            okButtonText={
++              __DARWIN__ ? 'Add to GitHub Desktop' : 'Add to GitHub Desktop'
++            }
++            cancelButtonText={__DARWIN__ ? 'Cancel' : 'Cancel'}
++          />
++        </DialogFooter>
++      </Dialog>
++    )
++  }
++
++  private onAddToDesktop = async () => {
++    const { dispatcher, worktreePath, onDismissed } = this.props
++
++    this.setState({ isAddingRepository: true })
++
++    try {
++      const repositories = await dispatcher.addRepositories([worktreePath])
++      if (repositories.length > 0) {
++        dispatcher.selectRepository(repositories[0])
++      }
++    } finally {
++      this.setState({ isAddingRepository: false })
++      onDismissed()
++    }
++  }
++}
