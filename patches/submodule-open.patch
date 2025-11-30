@@ -1,0 +1,175 @@
+diff --git a/app/src/ui/changes/changes-list.tsx b/app/src/ui/changes/changes-list.tsx
+index 0b849b3..3911f4e 100644
+--- a/app/src/ui/changes/changes-list.tsx
++++ b/app/src/ui/changes/changes-list.tsx
+@@ -166,6 +166,13 @@ interface IChangesListProps {
+    */
+   readonly onOpenItemInExternalEditor: (path: string) => void
+ 
++  /**
++   * Called to open a submodule in GitHub Desktop
++   *
++   * @param fullPath The full path to the submodule
++   */
++  readonly onOpenSubmodule?: (fullPath: string) => void
++
+   /**
+    * The currently checked out branch (null if no branch is checked out).
+    */
+@@ -672,6 +679,13 @@ export class ChangesList extends React.Component<
+       }
+     )
+ 
++    if (file.status.submoduleStatus !== undefined) {
++      items.push({
++        label: 'Show Repo',
++        action: () => this.props.onOpenSubmodule?.(file.path),
++      })
++    }
++
+     return items
+   }
+ 
+@@ -706,6 +720,13 @@ export class ChangesList extends React.Component<
+       }
+     )
+ 
++    if (file.status.submoduleStatus !== undefined) {
++      items.push({
++        label: 'Show Repo',
++        action: () => this.props.onOpenSubmodule?.(file.path),
++      })
++    }
++
+     return items
+   }
+ 
+@@ -980,6 +1001,11 @@ export class ChangesList extends React.Component<
+   private onRowDoubleClick = (row: number) => {
+     const file = this.props.workingDirectory.files[row]
+ 
++    if (file.status.submoduleStatus !== undefined) {
++      this.props.onOpenSubmodule?.(file.path)
++      return
++    }
++
+     this.props.onOpenItemInExternalEditor(file.path)
+   }
+ 
+diff --git a/app/src/ui/changes/filter-changes-list.tsx b/app/src/ui/changes/filter-changes-list.tsx
+index 15b2c72..90785cf 100644
+--- a/app/src/ui/changes/filter-changes-list.tsx
++++ b/app/src/ui/changes/filter-changes-list.tsx
+@@ -149,6 +149,13 @@ interface IFilterChangesListProps {
+    */
+   readonly onOpenItemInExternalEditor: (path: string) => void
+ 
++  /**
++   * Called to open a submodule in GitHub Desktop
++   *
++   * @param fullPath The full path to the submodule
++   */
++  readonly onOpenSubmodule?: (fullPath: string) => void
++
+   /**
+    * The currently checked out branch (null if no branch is checked out).
+    */
+@@ -770,6 +777,13 @@ export class FilterChangesList extends React.Component<
+       }
+     )
+ 
++    if (file.status.submoduleStatus !== undefined) {
++      items.push({
++        label: 'Show Repo',
++        action: () => this.props.onOpenSubmodule?.(file.path),
++      })
++    }
++
+     return items
+   }
+ 
+@@ -804,6 +818,13 @@ export class FilterChangesList extends React.Component<
+       }
+     )
+ 
++    if (file.status.submoduleStatus !== undefined) {
++      items.push({
++        label: 'Show Repo',
++        action: () => this.props.onOpenSubmodule?.(file.path),
++      })
++    }
++
+     return items
+   }
+ 
+@@ -1088,7 +1109,14 @@ export class FilterChangesList extends React.Component<
+   }
+ 
+   private onChangedFileDoubleClick = (item: IChangesListItem) => {
+-    this.props.onOpenItemInExternalEditor(item.change.path)
++    const file = item.change
++
++    if (file.status.submoduleStatus !== undefined) {
++      this.props.onOpenSubmodule?.(file.path)
++      return
++    }
++
++    this.props.onOpenItemInExternalEditor(file.path)
+   }
+ 
+   private onItemKeyDown = (
+diff --git a/app/src/ui/changes/sidebar.tsx b/app/src/ui/changes/sidebar.tsx
+index a551010..1acf475 100644
+--- a/app/src/ui/changes/sidebar.tsx
++++ b/app/src/ui/changes/sidebar.tsx
+@@ -78,6 +78,13 @@ interface IChangesSidebarProps {
+    * @param fullPath The full path to the file on disk
+    */
+   readonly onOpenInExternalEditor: (fullPath: string) => void
++
++  /**
++   * Callback to open a submodule in GitHub Desktop
++   *
++   * @param fullPath The full path to the submodule
++   */
++  readonly onOpenSubmodule?: (fullPath: string) => void
+   readonly onChangesListScrolled: (scrollTop: number) => void
+   readonly changesListScrollTop?: number
+ 
+@@ -272,6 +279,16 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
+     this.props.onOpenInExternalEditor(path)
+   }
+ 
++  /**
++   * Called to open a submodule in GitHub Desktop
++   *
++   * @param path The path of the submodule relative to the root of the repository
++   */
++  private onOpenSubmodule = (path: string) => {
++    const fullPath = Path.join(this.props.repository.path, path)
++    this.props.onOpenSubmodule?.(fullPath)
++  }
++
+   /**
+    * Toggles the selection of a given working directory file.
+    * If the file is partially selected it the selection is cleared
+@@ -448,6 +465,7 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
+           coAuthors={coAuthors}
+           externalEditorLabel={this.props.externalEditorLabel}
+           onOpenItemInExternalEditor={this.onOpenItemInExternalEditor}
++          onOpenSubmodule={this.onOpenSubmodule}
+           onChangesListScrolled={this.props.onChangesListScrolled}
+           changesListScrollTop={this.props.changesListScrollTop}
+           stashEntry={this.props.changes.stashEntry}
+diff --git a/app/src/ui/repository.tsx b/app/src/ui/repository.tsx
+index 135df80..8c46ac5 100644
+--- a/app/src/ui/repository.tsx
++++ b/app/src/ui/repository.tsx
+@@ -267,6 +267,7 @@ export class RepositoryView extends React.Component<
+         isShowingFoldout={this.props.isShowingFoldout}
+         externalEditorLabel={this.props.externalEditorLabel}
+         onOpenInExternalEditor={this.props.onOpenInExternalEditor}
++        onOpenSubmodule={this.onOpenSubmodule}
+         onChangesListScrolled={this.onChangesListScrolled}
+         changesListScrollTop={scrollTop}
+         shouldNudgeToCommit={

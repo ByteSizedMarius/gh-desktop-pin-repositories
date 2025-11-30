@@ -58,6 +58,12 @@ const STANDALONE_PATCHES = [
     description: 'Detect branches in worktrees and offer to add them to Desktop',
     recommended: false,
   },
+  {
+    name: 'submodule-open',
+    file: 'submodule-open.patch',
+    description: 'Open submodules in Desktop via double-click or right-click menu',
+    recommended: false,
+  },
 ]
 
 const ALL_PATCHES = [...FEATURE_PATCHES, ...STANDALONE_PATCHES]
