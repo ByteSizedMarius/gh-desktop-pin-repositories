@@ -10,8 +10,8 @@ const DESKTOP_TAG = 'release-3.5.2'
 
 const PATCHES_DIR = path.join(__dirname, 'patches')
 
-// Feature patches that may have overlapping changes - will use three-way merge
-const FEATURE_PATCHES = [
+// All patches - will use three-way merge when multiple are selected
+const ALL_PATCHES = [
   {
     name: 'pins',
     file: 'pins.patch',
@@ -30,10 +30,6 @@ const FEATURE_PATCHES = [
     description: 'Remove the "Recent" repositories section',
     recommended: false,
   },
-]
-
-// Standalone patches that don't overlap with features
-const STANDALONE_PATCHES = [
   {
     name: 'disable-auto-updates',
     file: 'disable_auto_updates.patch',
@@ -65,8 +61,6 @@ const STANDALONE_PATCHES = [
     recommended: false,
   },
 ]
-
-const ALL_PATCHES = [...FEATURE_PATCHES, ...STANDALONE_PATCHES]
 
 // ANSI colors
 const colors = {
@@ -294,140 +288,114 @@ function applyPatch(patchPath, targetDir) {
   }
 }
 
-function threeWayMerge(patches, targetDir) {
-  // For each file that's modified by multiple patches, we need to:
-  // 1. Get the original file content
-  // 2. Apply each patch independently to get different versions
-  // 3. Use diff3 or similar to merge them
+// Auto-resolve simple "both add lines at same location" conflicts
+function resolveSimpleConflicts(targetDir) {
+  const status = exec('git status --porcelain', { cwd: targetDir }) || ''
+  const conflictedFiles = status.split('\n')
+    .filter(line => line.startsWith('UU'))
+    .map(line => line.slice(3).trim())
 
-  // First, collect all files modified by the selected patches
-  const filePatches = new Map() // file -> [patch contents that modify it]
+  for (const file of conflictedFiles) {
+    const filePath = path.join(targetDir, file)
+    let content = fs.readFileSync(filePath, 'utf8')
 
-  for (const patch of patches) {
-    const patchPath = path.join(PATCHES_DIR, patch.file)
-    const patchContent = fs.readFileSync(patchPath, 'utf8')
+    // Pattern: <<<<<<< HEAD\r?\nours\r?\n=======\r?\ntheirs\r?\n>>>>>>> branch
+    // Handle both Unix (\n) and Windows (\r\n) line endings
+    // Resolve by keeping both (ours first, then theirs)
+    const conflictRegex = /<<<<<<< HEAD\r?\n([\s\S]*?)=======\r?\n([\s\S]*?)>>>>>>> [^\r\n]+\r?\n?/g
 
-    // Parse patch to find affected files
-    const fileRegex = /^diff --git a\/(.+?) b\/\1/gm
-    let match
-    while ((match = fileRegex.exec(patchContent)) !== null) {
-      const file = match[1]
-      if (!filePatches.has(file)) {
-        filePatches.set(file, [])
-      }
-      filePatches.get(file).push({ patch, patchContent, patchPath })
+    let hadConflicts = false
+    content = content.replace(conflictRegex, (match, ours, theirs) => {
+      hadConflicts = true
+      // Keep both sections
+      return ours + theirs
+    })
+
+    if (hadConflicts) {
+      fs.writeFileSync(filePath, content)
+      exec(`git add "${file}"`, { cwd: targetDir })
     }
   }
 
-  // Check for files modified by multiple patches
-  const conflicts = []
-  for (const [file, patchList] of filePatches) {
-    if (patchList.length > 1) {
-      conflicts.push({ file, patches: patchList.map(p => p.patch.name) })
-    }
-  }
-
-  if (conflicts.length === 0) {
-    // No overlapping files - can apply sequentially
-    return { needsMerge: false, conflicts: [] }
-  }
-
-  // We have overlapping patches - need three-way merge
-  return { needsMerge: true, conflicts, filePatches }
+  // Check if all conflicts resolved
+  const remainingStatus = exec('git status --porcelain', { cwd: targetDir }) || ''
+  return !remainingStatus.includes('UU')
 }
 
 async function applyPatches(selectedPatches, targetDir) {
-  const featurePatches = selectedPatches.filter(p => FEATURE_PATCHES.some(f => f.name === p.name))
-  const standalonePatches = selectedPatches.filter(p => STANDALONE_PATCHES.some(s => s.name === p.name))
-
-  // Check if feature patches need three-way merge
-  const mergeCheck = threeWayMerge(featurePatches, targetDir)
-
-  if (mergeCheck.needsMerge) {
-    log('\n  Feature patches modify overlapping files, using three-way merge...')
-
-    // For three-way merge, we'll use a temp directory approach:
-    // 1. For each patch, create a temp branch and apply it
-    // 2. Merge branches together
-    // 3. Reset to merged state
-
-    const tempBranches = []
-    const baseRef = DESKTOP_TAG
-
-    try {
-      for (const patch of featurePatches) {
-        // Start from clean base for each patch
-        exec(`git checkout ${baseRef}`, { cwd: targetDir })
-
-        const branchName = `temp-patch-${patch.name}-${Date.now()}`
-        exec(`git checkout -b ${branchName}`, { cwd: targetDir })
-
-        const result = applyPatch(path.join(PATCHES_DIR, patch.file), targetDir)
-        if (!result.success) {
-          throw new Error(`Failed to apply ${patch.name}: ${result.error}`)
-        }
-
-        exec(`git add -A && git commit -m "Apply ${patch.name}"`, { cwd: targetDir })
-        tempBranches.push(branchName)
-      }
-
-      // Merge all temp branches
-      if (tempBranches.length > 0) {
-        exec(`git checkout ${tempBranches[0]}`, { cwd: targetDir })
-
-        for (let i = 1; i < tempBranches.length; i++) {
-          const mergeResult = spawnSync('git', ['merge', '--no-edit', tempBranches[i]], {
-            cwd: targetDir,
-            encoding: 'utf8',
-          })
-
-          if (mergeResult.status !== 0) {
-            // Check for conflicts
-            const status = exec('git status --porcelain', { cwd: targetDir })
-            if (status && status.includes('UU')) {
-              throw new Error(`Merge conflict between patches. Run --test to verify combinations.`)
-            }
-          }
-        }
-
-        // Stay on merged state (we're on first temp branch with all merges applied)
-      }
-
-    } finally {
-      // Cleanup temp branches (except current one which has the merged result)
-      const currentBranch = exec('git rev-parse --abbrev-ref HEAD', { cwd: targetDir })
-      for (const branch of tempBranches) {
-        if (branch !== currentBranch) {
-          exec(`git branch -D ${branch} 2>/dev/null`, { cwd: targetDir })
-        }
-      }
-    }
-
-    for (const patch of featurePatches) {
-      logSuccess(patch.file)
-    }
-
-  } else {
-    // No overlap - apply feature patches directly
-    for (const patch of featurePatches) {
-      const result = applyPatch(path.join(PATCHES_DIR, patch.file), targetDir)
-      if (result.success) {
-        logSuccess(patch.file)
-      } else {
-        logError(`${patch.file}: ${result.error}`)
-        return false
-      }
-    }
-  }
-
-  // Apply standalone patches directly
-  for (const patch of standalonePatches) {
+  // Single patch - apply directly
+  if (selectedPatches.length === 1) {
+    const patch = selectedPatches[0]
     const result = applyPatch(path.join(PATCHES_DIR, patch.file), targetDir)
     if (result.success) {
       logSuccess(patch.file)
+      return true
     } else {
       logError(`${patch.file}: ${result.error}`)
       return false
+    }
+  }
+
+  // Multiple patches - always use three-way merge to handle overlaps
+  log('\n  Using three-way merge for multiple patches...')
+
+  const tempBranches = []
+  const baseRef = DESKTOP_TAG
+
+  try {
+    for (const patch of selectedPatches) {
+      // Start from clean base for each patch
+      exec(`git checkout ${baseRef}`, { cwd: targetDir })
+
+      const branchName = `temp-patch-${patch.name}-${Date.now()}`
+      exec(`git checkout -b ${branchName}`, { cwd: targetDir })
+
+      const result = applyPatch(path.join(PATCHES_DIR, patch.file), targetDir)
+      if (!result.success) {
+        throw new Error(`Failed to apply ${patch.name}: ${result.error}`)
+      }
+
+      exec(`git add -A && git commit -m "Apply ${patch.name}"`, { cwd: targetDir })
+      tempBranches.push(branchName)
+    }
+
+    // Merge all temp branches
+    exec(`git checkout ${tempBranches[0]}`, { cwd: targetDir })
+
+    for (let i = 1; i < tempBranches.length; i++) {
+      const mergeResult = spawnSync('git', ['merge', '--no-edit', tempBranches[i]], {
+        cwd: targetDir,
+        encoding: 'utf8',
+      })
+
+      if (mergeResult.status !== 0) {
+        // Check for conflicts
+        const status = exec('git status --porcelain', { cwd: targetDir })
+        if (status && status.includes('UU')) {
+          // Try to auto-resolve simple conflicts (both sides adding lines)
+          const resolved = resolveSimpleConflicts(targetDir)
+          if (resolved) {
+            // Commit the resolved merge
+            exec('git commit --no-edit', { cwd: targetDir })
+          } else {
+            throw new Error(`Merge conflict between patches. Run --test to verify combinations.`)
+          }
+        }
+      }
+    }
+
+    // Success - log all applied patches
+    for (const patch of selectedPatches) {
+      logSuccess(patch.file)
+    }
+
+  } finally {
+    // Cleanup temp branches (except current one which has the merged result)
+    const currentBranch = exec('git rev-parse --abbrev-ref HEAD', { cwd: targetDir })
+    for (const branch of tempBranches) {
+      if (branch !== currentBranch) {
+        exec(`git branch -D ${branch} 2>/dev/null`, { cwd: targetDir })
+      }
     }
   }
 
