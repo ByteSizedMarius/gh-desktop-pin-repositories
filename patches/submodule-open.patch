@@ -1,8 +1,88 @@
+diff --git a/app/src/lib/git/nested-repo.ts b/app/src/lib/git/nested-repo.ts
+new file mode 100644
+index 0000000..2d5c092
+--- /dev/null
++++ b/app/src/lib/git/nested-repo.ts
+@@ -0,0 +1,21 @@
++import * as Path from 'path'
++import * as FSE from 'fs-extra'
++
++/**
++ * Check if a path contains a git repository (has .git directory or file).
++ * Used to detect untracked directories that are git repos (not declared submodules).
++ */
++export async function isNestedGitRepository(fullPath: string): Promise<boolean> {
++  try {
++    const stat = await FSE.stat(fullPath)
++    if (!stat.isDirectory()) {
++      return false
++    }
++
++    const gitPath = Path.join(fullPath, '.git')
++    const gitExists = await FSE.pathExists(gitPath)
++    return gitExists
++  } catch {
++    return false
++  }
++}
+diff --git a/app/src/models/popup.ts b/app/src/models/popup.ts
+index 61ca273..61a0829 100644
+--- a/app/src/models/popup.ts
++++ b/app/src/models/popup.ts
+@@ -103,6 +103,7 @@ export enum PopupType {
+   BypassPushProtection = 'BypassPushProtection',
+   GenerateCommitMessageOverrideWarning = 'GenerateCommitMessageOverrideWarning',
+   GenerateCommitMessageDisclaimer = 'GenerateCommitMessageDisclaimer',
++  NestedRepo = 'NestedRepo',
+ }
+ 
+ interface IBasePopup {
+@@ -464,5 +465,10 @@ export type PopupDetail =
+       repository: Repository
+       filesSelected: ReadonlyArray<WorkingDirectoryFileChange>
+     }
++  | {
++      type: PopupType.NestedRepo
++      repository: Repository
++      nestedRepoPath: string
++    }
+ 
+ export type Popup = IBasePopup & PopupDetail
+diff --git a/app/src/ui/app.tsx b/app/src/ui/app.tsx
+index 520f0d4..e68b9de 100644
+--- a/app/src/ui/app.tsx
++++ b/app/src/ui/app.tsx
+@@ -108,6 +108,7 @@ import { PushNeedsPullWarning } from './push-needs-pull'
+ import { getCurrentBranchForcePushState } from '../lib/rebase'
+ import { Banner, BannerType } from '../models/banner'
+ import { StashAndSwitchBranch } from './stash-changes/stash-and-switch-branch-dialog'
++import { NestedRepoDialog } from './nested-repo/nested-repo-dialog'
+ import { OverwriteStash } from './stash-changes/overwrite-stashed-changes-dialog'
+ import { ConfirmDiscardStashDialog } from './stashing/confirm-discard-stash'
+ import { ConfirmCheckoutCommitDialog } from './checkout/confirm-checkout-commit'
+@@ -2572,6 +2573,17 @@ export class App extends React.Component<IAppProps, IAppState> {
+           />
+         )
+       }
++      case PopupType.NestedRepo: {
++        return (
++          <NestedRepoDialog
++            key="nested-repo"
++            dispatcher={this.props.dispatcher}
++            repository={popup.repository}
++            nestedRepoPath={popup.nestedRepoPath}
++            onDismissed={onPopupDismissedFn}
++          />
++        )
++      }
+       default:
+         return assertNever(popup, `Unknown popup type: ${popup}`)
+     }
 diff --git a/app/src/ui/changes/changes-list.tsx b/app/src/ui/changes/changes-list.tsx
-index 0b849b3..3911f4e 100644
+index 0b849b3..2a37c2d 100644
 --- a/app/src/ui/changes/changes-list.tsx
 +++ b/app/src/ui/changes/changes-list.tsx
-@@ -166,6 +166,13 @@ interface IChangesListProps {
+@@ -166,6 +166,21 @@ interface IChangesListProps {
     */
    readonly onOpenItemInExternalEditor: (path: string) => void
  
@@ -13,10 +93,18 @@ index 0b849b3..3911f4e 100644
 +   */
 +  readonly onOpenSubmodule?: (fullPath: string) => void
 +
++  /**
++   * Called to check if an untracked directory is a nested git repo
++   * and offer to add it to GitHub Desktop
++   *
++   * @param path The path relative to the repository root
++   */
++  readonly onCheckNestedRepo?: (path: string) => void
++
    /**
     * The currently checked out branch (null if no branch is checked out).
     */
-@@ -672,6 +679,13 @@ export class ChangesList extends React.Component<
+@@ -672,6 +687,18 @@ export class ChangesList extends React.Component<
        }
      )
  
@@ -25,12 +113,17 @@ index 0b849b3..3911f4e 100644
 +        label: 'Show Repo',
 +        action: () => this.props.onOpenSubmodule?.(file.path),
 +      })
++    } else if (file.status.kind === AppFileStatusKind.Untracked) {
++      items.push({
++        label: 'Check for Nested Repo',
++        action: () => this.props.onCheckNestedRepo?.(file.path),
++      })
 +    }
 +
      return items
    }
  
-@@ -706,6 +720,13 @@ export class ChangesList extends React.Component<
+@@ -706,6 +733,18 @@ export class ChangesList extends React.Component<
        }
      )
  
@@ -39,12 +132,17 @@ index 0b849b3..3911f4e 100644
 +        label: 'Show Repo',
 +        action: () => this.props.onOpenSubmodule?.(file.path),
 +      })
++    } else if (file.status.kind === AppFileStatusKind.Untracked) {
++      items.push({
++        label: 'Check for Nested Repo',
++        action: () => this.props.onCheckNestedRepo?.(file.path),
++      })
 +    }
 +
      return items
    }
  
-@@ -980,6 +1001,11 @@ export class ChangesList extends React.Component<
+@@ -980,6 +1019,17 @@ export class ChangesList extends React.Component<
    private onRowDoubleClick = (row: number) => {
      const file = this.props.workingDirectory.files[row]
  
@@ -53,14 +151,20 @@ index 0b849b3..3911f4e 100644
 +      return
 +    }
 +
++    // Check for untracked directories that might be nested git repos
++    if (file.status.kind === AppFileStatusKind.Untracked) {
++      this.props.onCheckNestedRepo?.(file.path)
++      return
++    }
++
      this.props.onOpenItemInExternalEditor(file.path)
    }
  
 diff --git a/app/src/ui/changes/filter-changes-list.tsx b/app/src/ui/changes/filter-changes-list.tsx
-index 15b2c72..90785cf 100644
+index 15b2c72..c161048 100644
 --- a/app/src/ui/changes/filter-changes-list.tsx
 +++ b/app/src/ui/changes/filter-changes-list.tsx
-@@ -149,6 +149,13 @@ interface IFilterChangesListProps {
+@@ -149,6 +149,21 @@ interface IFilterChangesListProps {
     */
    readonly onOpenItemInExternalEditor: (path: string) => void
  
@@ -71,10 +175,18 @@ index 15b2c72..90785cf 100644
 +   */
 +  readonly onOpenSubmodule?: (fullPath: string) => void
 +
++  /**
++   * Called to check if an untracked directory is a nested git repo
++   * and offer to add it to GitHub Desktop
++   *
++   * @param path The path relative to the repository root
++   */
++  readonly onCheckNestedRepo?: (path: string) => void
++
    /**
     * The currently checked out branch (null if no branch is checked out).
     */
-@@ -770,6 +777,13 @@ export class FilterChangesList extends React.Component<
+@@ -770,6 +785,18 @@ export class FilterChangesList extends React.Component<
        }
      )
  
@@ -83,12 +195,17 @@ index 15b2c72..90785cf 100644
 +        label: 'Show Repo',
 +        action: () => this.props.onOpenSubmodule?.(file.path),
 +      })
++    } else if (file.status.kind === AppFileStatusKind.Untracked) {
++      items.push({
++        label: 'Check for Nested Repo',
++        action: () => this.props.onCheckNestedRepo?.(file.path),
++      })
 +    }
 +
      return items
    }
  
-@@ -804,6 +818,13 @@ export class FilterChangesList extends React.Component<
+@@ -804,6 +831,18 @@ export class FilterChangesList extends React.Component<
        }
      )
  
@@ -97,12 +214,17 @@ index 15b2c72..90785cf 100644
 +        label: 'Show Repo',
 +        action: () => this.props.onOpenSubmodule?.(file.path),
 +      })
++    } else if (file.status.kind === AppFileStatusKind.Untracked) {
++      items.push({
++        label: 'Check for Nested Repo',
++        action: () => this.props.onCheckNestedRepo?.(file.path),
++      })
 +    }
 +
      return items
    }
  
-@@ -1088,7 +1109,14 @@ export class FilterChangesList extends React.Component<
+@@ -1088,7 +1127,20 @@ export class FilterChangesList extends React.Component<
    }
  
    private onChangedFileDoubleClick = (item: IChangesListItem) => {
@@ -114,15 +236,21 @@ index 15b2c72..90785cf 100644
 +      return
 +    }
 +
++    // Check for untracked directories that might be nested git repos
++    if (file.status.kind === AppFileStatusKind.Untracked) {
++      this.props.onCheckNestedRepo?.(file.path)
++      return
++    }
++
 +    this.props.onOpenItemInExternalEditor(file.path)
    }
  
    private onItemKeyDown = (
 diff --git a/app/src/ui/changes/sidebar.tsx b/app/src/ui/changes/sidebar.tsx
-index a551010..1acf475 100644
+index a551010..3f3ea1c 100644
 --- a/app/src/ui/changes/sidebar.tsx
 +++ b/app/src/ui/changes/sidebar.tsx
-@@ -78,6 +78,13 @@ interface IChangesSidebarProps {
+@@ -78,6 +78,20 @@ interface IChangesSidebarProps {
     * @param fullPath The full path to the file on disk
     */
    readonly onOpenInExternalEditor: (fullPath: string) => void
@@ -133,10 +261,17 @@ index a551010..1acf475 100644
 +   * @param fullPath The full path to the submodule
 +   */
 +  readonly onOpenSubmodule?: (fullPath: string) => void
++
++  /**
++   * Callback to check if an untracked path is a nested git repo
++   *
++   * @param fullPath The full path to check
++   */
++  readonly onCheckNestedRepo?: (fullPath: string) => void
    readonly onChangesListScrolled: (scrollTop: number) => void
    readonly changesListScrollTop?: number
  
-@@ -272,6 +279,16 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
+@@ -272,6 +286,26 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
      this.props.onOpenInExternalEditor(path)
    }
  
@@ -150,26 +285,161 @@ index a551010..1acf475 100644
 +    this.props.onOpenSubmodule?.(fullPath)
 +  }
 +
++  /**
++   * Called to check if an untracked path is a nested git repo
++   *
++   * @param path The path relative to the root of the repository
++   */
++  private onCheckNestedRepo = (path: string) => {
++    const fullPath = Path.join(this.props.repository.path, path)
++    this.props.onCheckNestedRepo?.(fullPath)
++  }
++
    /**
     * Toggles the selection of a given working directory file.
     * If the file is partially selected it the selection is cleared
-@@ -448,6 +465,7 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
+@@ -448,6 +482,8 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
            coAuthors={coAuthors}
            externalEditorLabel={this.props.externalEditorLabel}
            onOpenItemInExternalEditor={this.onOpenItemInExternalEditor}
 +          onOpenSubmodule={this.onOpenSubmodule}
++          onCheckNestedRepo={this.onCheckNestedRepo}
            onChangesListScrolled={this.props.onChangesListScrolled}
            changesListScrollTop={this.props.changesListScrollTop}
            stashEntry={this.props.changes.stashEntry}
+diff --git a/app/src/ui/dispatcher/dispatcher.ts b/app/src/ui/dispatcher/dispatcher.ts
+index 2a4671c..3a38c3c 100644
+--- a/app/src/ui/dispatcher/dispatcher.ts
++++ b/app/src/ui/dispatcher/dispatcher.ts
+@@ -2058,7 +2058,9 @@ export class Dispatcher {
+   public async openOrAddRepository(path: string): Promise<Repository | null> {
+     const state = this.appStore.getState()
+     const repositories = state.repositories
+-    const existingRepository = repositories.find(r => r.path === path)
++    // Remove trailing slashes for comparison
++    const normalizedPath = path.replace(/[/\\]+$/, '')
++    const existingRepository = repositories.find(r => r.path === normalizedPath)
+ 
+     if (existingRepository) {
+       return await this.selectRepository(existingRepository)
+diff --git a/app/src/ui/nested-repo/nested-repo-dialog.tsx b/app/src/ui/nested-repo/nested-repo-dialog.tsx
+new file mode 100644
+index 0000000..c0a01f6
+--- /dev/null
++++ b/app/src/ui/nested-repo/nested-repo-dialog.tsx
+@@ -0,0 +1,84 @@
++import * as React from 'react'
++import { Dialog, DialogContent, DialogFooter } from '../dialog'
++import { Repository } from '../../models/repository'
++import { Dispatcher } from '../dispatcher'
++import { Row } from '../lib/row'
++import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
++
++interface INestedRepoDialogProps {
++  readonly repository: Repository
++  readonly dispatcher: Dispatcher
++  readonly nestedRepoPath: string
++  readonly onDismissed: () => void
++}
++
++interface INestedRepoDialogState {
++  readonly isAddingRepository: boolean
++}
++
++/**
++ * Dialog shown when double-clicking an untracked directory that contains
++ * a git repository, offering to add it to GitHub Desktop.
++ */
++export class NestedRepoDialog extends React.Component<
++  INestedRepoDialogProps,
++  INestedRepoDialogState
++> {
++  public constructor(props: INestedRepoDialogProps) {
++    super(props)
++    this.state = { isAddingRepository: false }
++  }
++
++  public render() {
++    const { isAddingRepository } = this.state
++    const { nestedRepoPath } = this.props
++
++    return (
++      <Dialog
++        id="nested-repo"
++        title={__DARWIN__ ? 'Repository Found' : 'Repository found'}
++        onDismissed={this.props.onDismissed}
++        onSubmit={this.onAddToDesktop}
++        loading={isAddingRepository}
++        disabled={isAddingRepository}
++        type="normal"
++      >
++        <DialogContent>
++          <Row>
++            <p>This folder contains a git repository:</p>
++          </Row>
++          <Row>
++            <code className="nested-repo-path">{nestedRepoPath}</code>
++          </Row>
++          <Row>
++            <p>Would you like to add it to GitHub Desktop?</p>
++          </Row>
++        </DialogContent>
++        <DialogFooter>
++          <OkCancelButtonGroup
++            okButtonText={
++              __DARWIN__ ? 'Add to GitHub Desktop' : 'Add to GitHub Desktop'
++            }
++            cancelButtonText={__DARWIN__ ? 'Cancel' : 'Cancel'}
++          />
++        </DialogFooter>
++      </Dialog>
++    )
++  }
++
++  private onAddToDesktop = async () => {
++    const { dispatcher, nestedRepoPath, onDismissed } = this.props
++
++    this.setState({ isAddingRepository: true })
++
++    try {
++      const repositories = await dispatcher.addRepositories([nestedRepoPath])
++      if (repositories.length > 0) {
++        dispatcher.selectRepository(repositories[0])
++      }
++    } finally {
++      this.setState({ isAddingRepository: false })
++      onDismissed()
++    }
++  }
++}
 diff --git a/app/src/ui/repository.tsx b/app/src/ui/repository.tsx
-index 135df80..8c46ac5 100644
+index 135df80..993ea85 100644
 --- a/app/src/ui/repository.tsx
 +++ b/app/src/ui/repository.tsx
-@@ -267,6 +267,7 @@ export class RepositoryView extends React.Component<
+@@ -267,6 +267,8 @@ export class RepositoryView extends React.Component<
          isShowingFoldout={this.props.isShowingFoldout}
          externalEditorLabel={this.props.externalEditorLabel}
          onOpenInExternalEditor={this.props.onOpenInExternalEditor}
 +        onOpenSubmodule={this.onOpenSubmodule}
++        onCheckNestedRepo={this.onCheckNestedRepo}
          onChangesListScrolled={this.onChangesListScrolled}
          changesListScrollTop={scrollTop}
          shouldNudgeToCommit={
+@@ -577,6 +579,17 @@ export class RepositoryView extends React.Component<
+     this.props.dispatcher.openOrAddRepository(fullPath)
+   }
+ 
++  private onCheckNestedRepo = async (fullPath: string) => {
++    const { isNestedGitRepository } = await import('../lib/git/nested-repo')
++    const isNested = await isNestedGitRepository(fullPath)
++    if (isNested) {
++      // openOrAddRepository handles both cases:
++      // - If repo exists: selects it
++      // - If not: shows dialog to add it
++      this.props.dispatcher.openOrAddRepository(fullPath)
++    }
++  }
++
+   private onChangeImageDiffType = (imageDiffType: ImageDiffType) => {
+     this.props.dispatcher.changeImageDiffType(imageDiffType)
+   }
