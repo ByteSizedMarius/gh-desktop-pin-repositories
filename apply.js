@@ -288,40 +288,6 @@ function applyPatch(patchPath, targetDir) {
   }
 }
 
-// Auto-resolve simple "both add lines at same location" conflicts
-function resolveSimpleConflicts(targetDir) {
-  const status = exec('git status --porcelain', { cwd: targetDir }) || ''
-  const conflictedFiles = status.split('\n')
-    .filter(line => line.startsWith('UU'))
-    .map(line => line.slice(3).trim())
-
-  for (const file of conflictedFiles) {
-    const filePath = path.join(targetDir, file)
-    let content = fs.readFileSync(filePath, 'utf8')
-
-    // Pattern: <<<<<<< HEAD\r?\nours\r?\n=======\r?\ntheirs\r?\n>>>>>>> branch
-    // Handle both Unix (\n) and Windows (\r\n) line endings
-    // Resolve by keeping both (ours first, then theirs)
-    const conflictRegex = /<<<<<<< HEAD\r?\n([\s\S]*?)=======\r?\n([\s\S]*?)>>>>>>> [^\r\n]+\r?\n?/g
-
-    let hadConflicts = false
-    content = content.replace(conflictRegex, (match, ours, theirs) => {
-      hadConflicts = true
-      // Keep both sections
-      return ours + theirs
-    })
-
-    if (hadConflicts) {
-      fs.writeFileSync(filePath, content)
-      exec(`git add "${file}"`, { cwd: targetDir })
-    }
-  }
-
-  // Check if all conflicts resolved
-  const remainingStatus = exec('git status --porcelain', { cwd: targetDir }) || ''
-  return !remainingStatus.includes('UU')
-}
-
 async function applyPatches(selectedPatches, targetDir) {
   // Single patch - apply directly
   if (selectedPatches.length === 1) {
@@ -372,14 +338,7 @@ async function applyPatches(selectedPatches, targetDir) {
         // Check for conflicts
         const status = exec('git status --porcelain', { cwd: targetDir })
         if (status && status.includes('UU')) {
-          // Try to auto-resolve simple conflicts (both sides adding lines)
-          const resolved = resolveSimpleConflicts(targetDir)
-          if (resolved) {
-            // Commit the resolved merge
-            exec('git commit --no-edit', { cwd: targetDir })
-          } else {
-            throw new Error(`Merge conflict between patches. Run --test to verify combinations.`)
-          }
+          throw new Error(`Merge conflict between patches. Run --test to verify combinations.`)
         }
       }
     }

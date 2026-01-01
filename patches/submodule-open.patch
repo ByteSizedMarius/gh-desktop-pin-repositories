@@ -1,6 +1,6 @@
 diff --git a/app/src/lib/git/nested-repo.ts b/app/src/lib/git/nested-repo.ts
 new file mode 100644
-index 0000000..2d5c092
+index 0000000000..2d5c0920d9
 --- /dev/null
 +++ b/app/src/lib/git/nested-repo.ts
 @@ -0,0 +1,21 @@
@@ -26,44 +26,45 @@ index 0000000..2d5c092
 +  }
 +}
 diff --git a/app/src/models/popup.ts b/app/src/models/popup.ts
-index 61ca273..61a0829 100644
+index 61ca273d8c..427767cfef 100644
 --- a/app/src/models/popup.ts
 +++ b/app/src/models/popup.ts
-@@ -103,6 +103,7 @@ export enum PopupType {
+@@ -101,6 +101,7 @@ export enum PopupType {
+   TestAbout = 'TestAbout',
+   PushProtectionError = 'PushProtectionError',
    BypassPushProtection = 'BypassPushProtection',
++  NestedRepo = 'NestedRepo',
    GenerateCommitMessageOverrideWarning = 'GenerateCommitMessageOverrideWarning',
    GenerateCommitMessageDisclaimer = 'GenerateCommitMessageDisclaimer',
-+  NestedRepo = 'NestedRepo',
  }
- 
- interface IBasePopup {
-@@ -464,5 +465,10 @@ export type PopupDetail =
-       repository: Repository
-       filesSelected: ReadonlyArray<WorkingDirectoryFileChange>
+@@ -452,6 +453,11 @@ export type PopupDetail =
+       ) => void
+       onDismissed: () => void
      }
 +  | {
 +      type: PopupType.NestedRepo
 +      repository: Repository
 +      nestedRepoPath: string
 +    }
- 
- export type Popup = IBasePopup & PopupDetail
+   | {
+       type: PopupType.GenerateCommitMessageOverrideWarning
+       repository: Repository
 diff --git a/app/src/ui/app.tsx b/app/src/ui/app.tsx
-index 520f0d4..e68b9de 100644
+index 520f0d45a8..79dd14afff 100644
 --- a/app/src/ui/app.tsx
 +++ b/app/src/ui/app.tsx
-@@ -108,6 +108,7 @@ import { PushNeedsPullWarning } from './push-needs-pull'
- import { getCurrentBranchForcePushState } from '../lib/rebase'
+@@ -109,6 +109,7 @@ import { getCurrentBranchForcePushState } from '../lib/rebase'
  import { Banner, BannerType } from '../models/banner'
  import { StashAndSwitchBranch } from './stash-changes/stash-and-switch-branch-dialog'
-+import { NestedRepoDialog } from './nested-repo/nested-repo-dialog'
  import { OverwriteStash } from './stash-changes/overwrite-stashed-changes-dialog'
++import { NestedRepoDialog } from './nested-repo/nested-repo-dialog'
  import { ConfirmDiscardStashDialog } from './stashing/confirm-discard-stash'
  import { ConfirmCheckoutCommitDialog } from './checkout/confirm-checkout-commit'
-@@ -2572,6 +2573,17 @@ export class App extends React.Component<IAppProps, IAppState> {
+ import { CreateTutorialRepositoryDialog } from './no-repositories/create-tutorial-repository-dialog'
+@@ -2550,6 +2551,17 @@ export class App extends React.Component<IAppProps, IAppState> {
+             )}
            />
          )
-       }
 +      case PopupType.NestedRepo: {
 +        return (
 +          <NestedRepoDialog
@@ -75,11 +76,11 @@ index 520f0d4..e68b9de 100644
 +          />
 +        )
 +      }
-       default:
-         return assertNever(popup, `Unknown popup type: ${popup}`)
-     }
+       case PopupType.GenerateCommitMessageOverrideWarning: {
+         return (
+           <GenerateCommitMessageOverrideWarning
 diff --git a/app/src/ui/changes/changes-list.tsx b/app/src/ui/changes/changes-list.tsx
-index 0b849b3..2a37c2d 100644
+index 0b849b30b4..2a37c2d5df 100644
 --- a/app/src/ui/changes/changes-list.tsx
 +++ b/app/src/ui/changes/changes-list.tsx
 @@ -166,6 +166,21 @@ interface IChangesListProps {
@@ -161,7 +162,7 @@ index 0b849b3..2a37c2d 100644
    }
  
 diff --git a/app/src/ui/changes/filter-changes-list.tsx b/app/src/ui/changes/filter-changes-list.tsx
-index 15b2c72..c161048 100644
+index 15b2c72dc7..c161048db4 100644
 --- a/app/src/ui/changes/filter-changes-list.tsx
 +++ b/app/src/ui/changes/filter-changes-list.tsx
 @@ -149,6 +149,21 @@ interface IFilterChangesListProps {
@@ -247,7 +248,7 @@ index 15b2c72..c161048 100644
  
    private onItemKeyDown = (
 diff --git a/app/src/ui/changes/sidebar.tsx b/app/src/ui/changes/sidebar.tsx
-index a551010..3f3ea1c 100644
+index a5510108fb..3f3ea1c1d0 100644
 --- a/app/src/ui/changes/sidebar.tsx
 +++ b/app/src/ui/changes/sidebar.tsx
 @@ -78,6 +78,20 @@ interface IChangesSidebarProps {
@@ -308,7 +309,7 @@ index a551010..3f3ea1c 100644
            changesListScrollTop={this.props.changesListScrollTop}
            stashEntry={this.props.changes.stashEntry}
 diff --git a/app/src/ui/dispatcher/dispatcher.ts b/app/src/ui/dispatcher/dispatcher.ts
-index 2a4671c..3a38c3c 100644
+index 2a4671c45f..3a38c3c771 100644
 --- a/app/src/ui/dispatcher/dispatcher.ts
 +++ b/app/src/ui/dispatcher/dispatcher.ts
 @@ -2058,7 +2058,9 @@ export class Dispatcher {
@@ -324,7 +325,7 @@ index 2a4671c..3a38c3c 100644
        return await this.selectRepository(existingRepository)
 diff --git a/app/src/ui/nested-repo/nested-repo-dialog.tsx b/app/src/ui/nested-repo/nested-repo-dialog.tsx
 new file mode 100644
-index 0000000..c0a01f6
+index 0000000000..c0a01f6a98
 --- /dev/null
 +++ b/app/src/ui/nested-repo/nested-repo-dialog.tsx
 @@ -0,0 +1,84 @@
@@ -413,7 +414,7 @@ index 0000000..c0a01f6
 +  }
 +}
 diff --git a/app/src/ui/repository.tsx b/app/src/ui/repository.tsx
-index 135df80..993ea85 100644
+index 135df802cc..993ea85522 100644
 --- a/app/src/ui/repository.tsx
 +++ b/app/src/ui/repository.tsx
 @@ -267,6 +267,8 @@ export class RepositoryView extends React.Component<
